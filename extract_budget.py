@@ -41,9 +41,14 @@ def classify_page(text):
     }
 
 def _is_fragment(line):
-    """True when a line carries no structure of its own, so it may be a wrapped tail."""
-    return not (line == HEADER or STRUCT_RE.match(line) or ITEM_RE.match(line)
-                or TOTAL_RE.match(line) or TOTAL_PREFIX_RE.match(line))
+    """True when a line carries no structure of its own, so it may be a wrapped tail.
+
+    A line that opens its own item (even a malformed one, e.g. '0741 5,000') is never a
+    fragment: welding two item starts together would fabricate one item that swallows the
+    second object code's amount.
+    """
+    return not (line == HEADER or STRUCT_RE.match(line) or ITEM_START_RE.match(line)
+                or ITEM_RE.match(line) or TOTAL_RE.match(line) or TOTAL_PREFIX_RE.match(line))
 
 def _rejoin_wrapped(lines):
     """Repair items the text layer split mid-word: '0740 Equi' + 'pment 136,300'."""

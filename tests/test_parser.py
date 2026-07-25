@@ -409,3 +409,20 @@ def test_stray_leading_punctuation_before_object_code():
     assert ("0460", "Safety", 1080) in items
     assert secs[0]["total"] == 6477985
     assert sum(a for _, _, a in items) == 6477985
+
+# SYNTHETIC (no real page triggers this): two independently broken item-start lines in a
+# row -- the first lost its amount, the second lost its description. Concatenating them
+# happens to satisfy ITEM_RE, so the rejoin pass must refuse to weld two item starts
+# together and fabricate one item under 0740 that swallows 0741's amount.
+SYNTHETIC_ADJACENT_ITEM_STARTS = """Object Description Budget
+0740 Equipment
+0741 5,000
+Synthetic Section Total: 5,000"""
+
+def test_rejoin_does_not_merge_adjacent_item_start_lines():
+    secs = eb.parse_sections(SYNTHETIC_ADJACENT_ITEM_STARTS)
+    items = secs[0]["items"]
+    assert items == []
+    assert not any(code == "0740" for code, _, _ in items)
+    assert secs[0]["total_label"] == "Synthetic Section"
+    assert secs[0]["total"] == 5000
