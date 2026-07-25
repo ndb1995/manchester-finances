@@ -6,6 +6,8 @@
     <title>Manchester NH Budget Visualizer - FY2026</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-sankey@0.14.0/dist/chartjs-chart-sankey.min.js"></script>
+    <script src="data.js"></script>
     <style>
         /* ===== RESET & BASE ===== */
         *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
@@ -324,6 +326,31 @@
         </div>
     </div>
 </header>
+
+<!-- ===== MONEY FLOW (SANKEY) ===== -->
+<section class="section" style="background: var(--white);" id="flow">
+    <div class="container">
+        <div class="section-header">
+            <h2>💵 Where the Money Comes From &amp; Where It Goes</h2>
+            <div class="actions">
+                <div class="btn-group" id="flowYearToggle">
+                    <button data-year="fy25">FY2025</button>
+                    <button class="active" data-year="fy26">FY2026</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="chart-grid single">
+            <div class="chart-card full-width">
+                <h3><span class="icon">🌊</span> Revenue Sources &rarr; Funds &rarr; Categories &rarr; Departments</h3>
+                <p class="subtitle" style="font-size: 0.95rem; margin-bottom: 18px;">Every dollar of the city budget: revenue sources &rarr; funds &rarr; spending categories &rarr; departments. Hover a band for amounts; click a department for line items.</p>
+                <div class="chart-wrap" style="height: 640px;">
+                    <canvas id="sankeyChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
 
 <!-- ===== SECTION 1: WHERE THE MONEY GOES ===== -->
 <section class="section" id="allocation">
@@ -1019,6 +1046,114 @@ document.querySelectorAll('.insight-box').forEach(el => {
     el.style.transition = 'opacity 0.6s ease, transform 0.6s ease';
     observer.observe(el);
 });
+
+// ================================================================
+// CHART: Money-Flow Sankey (revenue → funds → categories → depts)
+// Data source: window.BUDGET_DATA (data.js, extracted from budget books)
+// ================================================================
+const D = window.BUDGET_DATA;
+
+// Category → color, reusing the hand-entered palette above so the Sankey
+// bands match the rest of the page. Fund nodes get their own colors.
+const FLOW_COLORS = Object.fromEntries(budgetData.map(d => [d.category, d.color]));
+FLOW_COLORS['General Fund'] = '#1a2d4a';
+FLOW_COLORS['School District'] = '#1e5a99';
+FLOW_COLORS['Enterprise Funds'] = '#6c757d';
+
+// Build the flow list for a fiscal year ('fy25' | 'fy26').
+// Enterprise funds (fund !== '0101') are excluded — the Sankey shows the
+// tax-supported budget only. Non-positive / missing amounts are dropped.
+function sankeyFlows(y) {
+    const flows = [];
+
+    // Stage 1: revenue sources → funds
+    for (const [g, v] of Object.entries(D.revenueGroups)) {
+        if (v[y] > 0) flows.push({ from: g, to: 'General Fund', flow: v[y] });
+    }
+    flows.push({ from: 'Property Tax', to: 'General Fund', flow: D.propertyTax.gf[y] });
+    flows.push({ from: 'Property Tax', to: 'School District', flow: D.propertyTax.msd[y] });
+    flows.push({ from: 'State & Other School Revenue', to: 'School District', flow: D.msdOther[y] });
+
+    // Stage 2: funds → spending categories
+    for (const [c, v] of Object.entries(D.categories)) {
+        if (c === 'Education (MSD)') flows.push({ from: 'School District', to: c, flow: v[y] });
+        else if (v[y] > 0) flows.push({ from: 'General Fund', to: c, flow: v[y] });
+    }
+
+    // Stage 3: categories → departments (General Fund only).
+    // Departments whose category is 'Other' or 'Mixed (see line items)'
+    // (Non-Departmental Items, Public Works) are left off this stage; their
+    // category bands still carry the full amount.
+    for (const d of D.departments) {
+        if (d.fund !== '0101' || !d.totals[y]) continue;
+        if (d.category && d.category !== 'Mixed (see line items)' && d.category !== 'Other') {
+            flows.push({ from: d.category, to: d.name, flow: d.totals[y] });
+        }
+    }
+
+    // The plugin cannot render zero/negative/missing bands.
+    return flows.filter(f => Number.isFinite(f.flow) && f.flow > 0);
+}
+
+let sankeyChart = null;
+
+function renderSankey(y) {
+    const ctx = document.getElementById('sankeyChart').getContext('2d');
+    if (sankeyChart) sankeyChart.destroy();
+    sankeyChart = new Chart(ctx, {
+        type: 'sankey',
+        data: {
+            datasets: [{
+                data: sankeyFlows(y),
+                colorFrom: c => FLOW_COLORS[c.dataset.data[c.dataIndex].from] || '#2c7bc0',
+                colorTo:   c => FLOW_COLORS[c.dataset.data[c.dataIndex].to]   || '#2c7bc0',
+                colorMode: 'gradient',
+                nodeWidth: 14,
+                borderWidth: 0,
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: false,
+            plugins: {
+                legend: { display: false },
+                datalabels: { display: false },
+                tooltip: {
+                    callbacks: {
+                        label: c => {
+                            const f = c.dataset.data[c.dataIndex];
+                            const total = D.citywide[y];
+                            return ` ${f.from} → ${f.to}: ${fmtFull(f.flow)} (${((100 * f.flow) / total).toFixed(1)}%)`;
+                        }
+                    }
+                }
+            },
+            onClick: (evt, els) => {
+                if (!els.length) return;
+                const f = sankeyChart.data.datasets[0].data[els[0].index];
+                const dept = D.departments.find(d => d.name === f.to);
+                if (dept) onSankeyDeptClick(dept.name);
+            }
+        },
+    });
+}
+
+// Replaced by the department drill-down.
+let onSankeyDeptClick = function(name) {};
+
+document.querySelectorAll('#flowYearToggle button').forEach(b =>
+    b.addEventListener('click', () => {
+        document.querySelectorAll('#flowYearToggle button').forEach(x => x.classList.remove('active'));
+        b.classList.add('active');
+        renderSankey(b.dataset.year);
+    }));
+
+try {
+    renderSankey('fy26');
+} catch (err) {
+    console.error('Sankey render failed:', err);
+}
 </script>
 </body>
 </html>
