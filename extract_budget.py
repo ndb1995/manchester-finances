@@ -1,6 +1,10 @@
 """Extract Manchester NH budget book PDFs into data.js. No OCR: pypdf text layer only."""
 import re, sys
 
+import pypdf
+
+from category_map import EXPECTED, TRANSIT_OBJECT
+
 AMOUNT = r"[\d][\d,\s]*(?:\.\d+)?"
 ANY_AMOUNT = rf"(?:\({AMOUNT}\)|{AMOUNT})"  # the book prints negatives in parentheses
 # Object codes are 4 digits, but the text layer sometimes drops the leading zero.
@@ -15,6 +19,8 @@ ORG_RE = re.compile(r"Organization:\s*(\d+)\s+(.+?)\s*$", re.M)
 STRUCT_RE = re.compile(r"^(Fund:|Agency:|Organization:|FY\s*\d{4}\b)")
 JUNK_PREFIX_RE = re.compile(r"^[;:]+(?=\d{3,4}\s)")  # text-layer artifact: ';0460 Safety 1,080'
 HEADER = "Object Description Budget"
+DEPT_LINE_RE = re.compile(r"^[A-Za-z][A-Za-z&,.'/-]*(?: [A-Za-z&,.'/-]+)*$")  # 'Public Works'
+UNATTRIBUTED = "(unattributed)"  # section whose split total left it without an org label
 
 def parse_amount(s):
     """'844,355' -> 844355; '(160,000)' -> -160000; '352,121.00' -> 352121 (nearest dollar)."""
@@ -90,3 +96,148 @@ def parse_sections(text):
     if cur["items"]:
         sections.append(cur)
     return sections
+
+def _norm(s):
+    """Fold case and punctuation so 'City Clerk-General' == 'City Clerk General'."""
+    return re.sub(r"[^a-z0-9]+", " ", (s or "").casefold()).strip()
+
+def _match_org(label, orgs):
+    """Match a section total label like 'Debt service' to ('140','Debt Service')."""
+    lab = _norm(label)
+    if not lab:
+        return None
+    for code, name in orgs:
+        n = _norm(name)
+        if lab.startswith(n) or n.startswith(lab):
+            return name
+    lab_words = set(lab.split())  # 'Police-Uniformed Officers' vs 'Police-Uniformed Police Officers'
+    for code, name in orgs:
+        words = set(_norm(name).split())
+        if words and (lab_words <= words or words <= lab_words):
+            return name
+    return None
+
+def _dept_lines(text):
+    """Grouping lines the book stamps on a sub-unit's page, e.g. 'Public Works' on the
+    Facilities Division pages or 'Health Department - City' on the Senior Services page.
+
+    They are the page's only leftover prose: no digits (which rules out wrapped item
+    fragments like 'pment 136,300') and no trailing colon (which rules out split totals).
+    """
+    out = []
+    for raw in text.splitlines():
+        ln = raw.strip()
+        if not ln or ln == HEADER or STRUCT_RE.match(ln) or ln.endswith(":"):
+            continue
+        if DEPT_LINE_RE.match(ln):
+            out.append(ln)
+    return out
+
+def parse_book(pdf_path):
+    """Aggregate one budget book into agencies, counting every dollar exactly once.
+
+    The book prints each department three ways: an agency-level page, 'by Organization'
+    detail pages, and -- for departments with sub-agencies -- sub-agency pages stamped with
+    the parent department's name. The detail restates the agency page, so only the
+    agency-level page feeds `expenses`/`revenues`; everything else feeds `org_expenses`.
+    Departments printed only as detail (Non-Departmental Items) fall back to that detail.
+    """
+    texts = [(page.extract_text() or "") for page in pypdf.PdfReader(pdf_path).pages]
+    metas = [classify_page(t) for t in texts]
+
+    # The same agency is named inconsistently across pages ('Highway Division' /
+    # 'Highway Department', 'Health Department - City' / 'Health Department'); its code is
+    # stable, so the first name seen for a (fund, code) becomes canonical.
+    canon = {}
+    for m in metas:
+        if m and m["agency_code"] and m["agency_name"]:
+            canon.setdefault((m["fund_code"], m["agency_code"]), m["agency_name"])
+    known = {}  # (fund, normalized any-name) -> canonical name
+    for m in metas:
+        if m and m["agency_name"]:
+            name = canon.get((m["fund_code"], m["agency_code"]), m["agency_name"])
+            known[(m["fund_code"], _norm(m["agency_name"]))] = name
+            known[(m["fund_code"], _norm(name))] = name
+
+    agencies, detail, warnings = {}, {}, []
+    for text, meta in zip(texts, metas):
+        if not meta:
+            continue  # summary/TOC/cover page
+        fund, depts = meta["fund_code"], _dept_lines(text)
+        name = known.get((fund, _norm(meta["agency_name"]))) if meta["agency_name"] else None
+        if not name:  # no 'Agency:' line at all (Non-Departmental Items)
+            name = next((known.get((fund, _norm(d)), d) for d in depts), None)
+            if not name:
+                warnings.append(f"page with fund {fund} has no agency or department name")
+                continue
+        parent = next((known[(fund, _norm(d))] for d in depts
+                       if (fund, _norm(d)) in known and known[(fund, _norm(d))] != name), None)
+        key = parent or name
+        a = agencies.setdefault(key, {"code": None, "name": key, "fund_code": fund,
+                                      "expenses": {}, "revenues": {}, "org_expenses": {},
+                                      "printed_totals": {}})
+        if a["fund_code"] != fund:
+            warnings.append(f"agency {key!r} appears in funds {a['fund_code']} and {fund}")
+        if parent is None and meta["agency_code"] and not a["code"]:
+            a["code"] = meta["agency_code"]
+        sections = parse_sections(text)
+        for sec in sections:  # printed totals are diagnostics, roll-ups included
+            if sec["total"] is not None and sec["total_label"]:
+                # keyed by kind too: an agency's expense and revenue totals share one label
+                a["printed_totals"][(meta["kind"], sec["total_label"])] = sec["total"]
+        sections = [s for s in sections if s["items"]]  # drop grand-total-only pseudo sections
+        # A page restating the agency total (its own 'by Organization' detail, or any page
+        # belonging to a parent department) must not be added to the agency bucket again.
+        is_detail = bool(parent) or meta["by_org"]
+        bucket = detail.setdefault((key, meta["kind"]), {}) if is_detail else (
+            a["expenses"] if meta["kind"] == "expense" else a["revenues"])
+        orgs = _page_orgs(sections, meta, name if parent else None)
+        for sec, org in zip(sections, orgs):
+            for code, desc, amt in sec["items"]:
+                k = (code, desc)
+                bucket[k] = bucket.get(k, 0) + amt
+                if org and meta["kind"] == "expense":
+                    a["org_expenses"].setdefault(org, {})
+                    a["org_expenses"][org][k] = a["org_expenses"][org].get(k, 0) + amt
+
+    for (key, kind), items in detail.items():  # departments printed only as detail
+        bucket = agencies[key]["expenses"] if kind == "expense" else agencies[key]["revenues"]
+        if not bucket:
+            bucket.update(items)
+    return {"agencies": agencies, "warnings": warnings}
+
+def _page_orgs(sections, meta, sub_agency):
+    """One organization name per section, or None when the section carries no detail.
+
+    On a sub-agency page without an organization breakdown the sub-agency itself is the
+    organization. Otherwise the section's own printed label is authoritative; a section
+    whose total was split across lines has no label, so it takes the page's one remaining
+    unclaimed organization when that is unambiguous.
+    """
+    if not meta["by_org"]:
+        return [sub_agency] * len(sections)
+    named = [_match_org(s["total_label"], meta["orgs"]) or s["total_label"] for s in sections]
+    unclaimed = [n for _, n in meta["orgs"] if n not in named]
+    blanks = [i for i, n in enumerate(named) if not n]
+    if len(blanks) == 1 and len(unclaimed) == 1:
+        named[blanks[0]] = unclaimed[0]
+    return [n or UNATTRIBUTED for n in named]
+
+def validate_book(book, fy_label):
+    errors, exp = list(book.get("warnings", ())), EXPECTED[fy_label]
+    gf_exp = gf_rev = 0
+    for a in book["agencies"].values():
+        if a["fund_code"] != "0101":
+            continue
+        gf_exp += sum(v for (code, _), v in a["expenses"].items() if code != TRANSIT_OBJECT)
+        gf_rev += sum(a["revenues"].values())
+    if abs(gf_exp - exp["gf_total"]) > 1:
+        errors.append(f"{fy_label} GF expense total {gf_exp:,} != expected {exp['gf_total']:,}")
+    if abs(gf_rev - exp["gf_revenue"]) > 1:
+        errors.append(f"{fy_label} GF revenue total {gf_rev:,} != expected {exp['gf_revenue']:,}")
+    return errors
+
+if __name__ == "__main__":
+    if len(sys.argv) >= 4 and sys.argv[1] == "--dump":
+        print(pypdf.PdfReader(sys.argv[2]).pages[int(sys.argv[3])].extract_text())
+        sys.exit(0)
