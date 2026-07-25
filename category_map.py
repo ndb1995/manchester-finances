@@ -90,17 +90,29 @@ def PW_ORG_CATEGORY(org_name):
         return "Culture & Recreation"
     raise SystemExit(f"Public Works organization not mapped to a category: {org_name!r}")
 
+FEE_WORDS = ("fee", "permit", "license", "rent", "copies", "receipt", "parking",
+             "application", "country club", "arena", "aquatic", "drop-off", "ice", "admission")
+
 def revenue_group(code, desc):
-    """Coarse grouping for the general fund's ~170 revenue lines."""
+    """Coarse grouping for the general fund's ~170 revenue lines.
+
+    Order matters. The two largest single sources are named explicitly and tested first
+    because the generic keyword sweep below would otherwise claim them: 'Motor Vehicle Title
+    Fee' contains 'fee', and 'Dividend (Parking Division)' contains 'parking'.
+    """
     d = desc.casefold()
     if code == "4083":
         return "Meals & Rooms Tax"
+    if code == "4680" or "auto registration" in d or "motor vehicle" in d:
+        return "Motor Vehicle Fees"
+    if "dividend" in d or "invested funds" in d:
+        return "Investment & Dividend Income"
     if "grant" in d or "state aid" in d or code in ("4094", "4109", "4035"):
         return "State Aid & Grants"
     if "reimburse" in d or "chargeback" in d or "charge back" in d or "recover" in d:
         return "Chargebacks & Reimbursements"
     if "in lieu of taxes" in d or "tax lien" in d or "interest on tax" in d:
         return "Other Taxes & PILOTs"
-    if any(w in d for w in ("fee", "permit", "license", "rent", "copies", "receipt", "parking")):
+    if any(w in d for w in FEE_WORDS):
         return "Fees, Permits & Charges"
     return "Other Revenue"

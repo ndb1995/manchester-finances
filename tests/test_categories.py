@@ -93,3 +93,41 @@ def test_meals_and_rooms_tax_is_its_own_group():
     from category_map import revenue_group
     assert revenue_group("4083", "Rooms & Meals Tax Distribution") == "Meals & Rooms Tax"
     assert eb.group_revenues(parsed(FY26))["Meals & Rooms Tax"] > 0
+
+def test_motor_vehicle_group_takes_registrations_before_the_fee_keywords():
+    # 'Auto Registration' (22.8M) is the book's largest single general fund revenue and
+    # 'Motor Vehicle Title Fee' would otherwise be swallowed by the 'fee' keyword.
+    from category_map import revenue_group as g
+    assert g("4680", "Auto Registration") == "Motor Vehicle Fees"
+    assert g("4681", "Auto Registration Parking") == "Motor Vehicle Fees"
+    assert g("4478", "Motor Vehicle Title Fee") == "Motor Vehicle Fees"
+
+def test_investment_group_takes_dividends_before_the_fee_keywords():
+    # 'Dividend (Parking Division)' (2.7M) would otherwise match the 'parking' keyword.
+    from category_map import revenue_group as g
+    assert g("4820", "Dividend (Parking Division)") == "Investment & Dividend Income"
+    assert g("4770", "Income from Invested Funds") == "Investment & Dividend Income"
+
+def test_fee_keywords_catch_permit_applications_and_recreation_charges():
+    from category_map import revenue_group as g
+    for desc in ("Building - Application", "Heating - Application", "Derryfield Country Club",
+                 "Ice Arenas", "Drop-Off Center Revenue", "Aquatics"):
+        assert g("4999", desc) == "Fees, Permits & Charges", desc
+
+def test_every_revenue_group_is_nonempty_in_both_years():
+    want = {"Meals & Rooms Tax", "Motor Vehicle Fees", "Investment & Dividend Income",
+            "State Aid & Grants", "Chargebacks & Reimbursements", "Other Taxes & PILOTs",
+            "Fees, Permits & Charges", "Other Revenue"}
+    for pdf in (FY26, FY25):
+        groups = eb.group_revenues(parsed(pdf))
+        assert set(groups) == want, f"{pdf}: {set(groups) ^ want}"
+        assert all(v > 0 for v in groups.values()), groups
+
+def test_other_revenue_is_not_a_mega_bucket():
+    # guard against regressing to the state where the residual was 56% of revenue and would
+    # dominate the flow diagram; every large source should have a named group instead.
+    for pdf, fy in [(FY26, "FY2026"), (FY25, "FY2025")]:
+        groups = eb.group_revenues(parsed(pdf))
+        total = EXPECTED[fy]["gf_revenue"]
+        share = groups["Other Revenue"] / total
+        assert share < 0.20, f"{fy} Other Revenue is {share:.1%} of {total:,}"
