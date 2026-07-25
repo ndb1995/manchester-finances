@@ -250,6 +250,109 @@
         .insight-box h4 { color: var(--navy); margin-bottom: 6px; font-size: 1rem; }
         .insight-box p { font-size: 0.95rem; color: #333; }
 
+        /* ===== DEPARTMENT INDEX LIST ===== */
+        .dept-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 14px;
+        }
+        .dept-list button {
+            border: 1px solid var(--gray-light);
+            background: var(--white);
+            color: #1a1a2e;
+            padding: 6px 14px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-family: inherit;
+            font-size: 0.85rem;
+            transition: background 0.2s ease, border-color 0.2s ease;
+        }
+        .dept-list button:hover { background: var(--gray-light); border-color: var(--gray); }
+        .dept-list .dept-list-label {
+            width: 100%;
+            font-size: 0.8rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--gray);
+            margin-top: 6px;
+        }
+
+        /* ===== DEPARTMENT DRILL-DOWN MODAL ===== */
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 27, 45, 0.55);
+            display: flex;
+            align-items: flex-start;
+            justify-content: center;
+            padding: 40px 16px;
+            overflow-y: auto;
+            z-index: 100;
+        }
+        .modal-overlay[hidden] { display: none; }
+        .modal-card {
+            background: var(--white);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-lg);
+            max-width: 900px;
+            width: 100%;
+            padding: 28px;
+            position: relative;
+        }
+        .modal-card h4 {
+            font-size: 1rem;
+            color: var(--navy);
+            margin-top: 18px;
+        }
+        .modal-close {
+            position: absolute;
+            top: 10px;
+            right: 16px;
+            font-size: 1.8rem;
+            line-height: 1;
+            border: 0;
+            background: none;
+            cursor: pointer;
+            color: var(--gray);
+        }
+        .modal-close:hover { color: var(--navy); }
+        .dept-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 8px 0 20px;
+            font-size: 0.92rem;
+        }
+        .dept-table th {
+            padding: 6px 10px;
+            text-align: right;
+            border-bottom: 2px solid var(--navy);
+            white-space: nowrap;
+        }
+        .dept-table td {
+            padding: 6px 10px;
+            text-align: right;
+            border-bottom: 1px solid var(--gray-light);
+            font-variant-numeric: tabular-nums;
+        }
+        .dept-table th:nth-child(2), .dept-table td:nth-child(2) { text-align: left; }
+        .dept-table.name-first th:first-child,
+        .dept-table.name-first td:first-child { text-align: left; }
+        .dept-table tr:hover td { background: #f0f4ff; }
+        .dept-table .up { color: var(--red); }
+        .dept-table .down { color: var(--green); }
+        .badge-new, .badge-gone {
+            font-size: 0.72rem;
+            padding: 1px 7px;
+            border-radius: 9px;
+            margin-left: 6px;
+            white-space: nowrap;
+        }
+        .badge-new { background: var(--teal); color: var(--white); }
+        .badge-gone { background: var(--gray); color: var(--white); }
+        .dept-table-wrap { overflow-x: auto; }
+
         /* ===== FOOTER ===== */
         .footer {
             background: var(--navy);
@@ -347,6 +450,8 @@
                 <div class="chart-wrap" style="height: 640px;">
                     <canvas id="sankeyChart"></canvas>
                 </div>
+                <p class="subtitle" style="font-size: 0.95rem; margin-top: 18px;"><strong>Every department</strong> &mdash; click for FY2025 vs FY2026 line items (General Fund by FY2026 budget, then enterprise funds).</p>
+                <div class="dept-list" id="deptList"></div>
             </div>
         </div>
     </div>
@@ -497,6 +602,45 @@
         <p style="margin-top: 6px;">FY2026 Budget Book · Data as of August 2025 · Built for transparency.</p>
     </div>
 </footer>
+
+<!-- ===== DEPARTMENT DRILL-DOWN MODAL ===== -->
+<div id="deptModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="deptModalTitle" hidden>
+    <div class="modal-card">
+        <button class="modal-close" aria-label="Close">&times;</button>
+        <h3 id="deptModalTitle"></h3>
+        <p id="deptModalMeta" class="subtitle" style="font-size: 0.95rem;"></p>
+        <div id="deptChartWrap" style="position: relative; height: 260px; margin-top: 16px;">
+            <canvas id="deptTopChart"></canvas>
+        </div>
+        <h4 id="deptOrgHead" hidden>Organizations</h4>
+        <div class="dept-table-wrap">
+            <table class="dept-table name-first" id="deptOrgTable" hidden>
+                <thead>
+                    <tr><th>Organization</th><th>FY2025</th><th>FY2026</th><th>$ Change</th><th>%</th></tr>
+                </thead>
+                <tbody id="deptOrgBody"></tbody>
+            </table>
+        </div>
+        <h4 id="deptExpHead">Expense line items</h4>
+        <div class="dept-table-wrap">
+            <table class="dept-table" id="deptExpTable">
+                <thead>
+                    <tr><th>Code</th><th>Description</th><th>FY2025</th><th>FY2026</th><th>$ Change</th><th>%</th></tr>
+                </thead>
+                <tbody id="deptExpBody"></tbody>
+            </table>
+        </div>
+        <h4 id="deptRevHead" hidden>Revenue line items</h4>
+        <div class="dept-table-wrap">
+            <table class="dept-table" id="deptRevTable" hidden>
+                <thead>
+                    <tr><th>Code</th><th>Description</th><th>FY2025</th><th>FY2026</th><th>$ Change</th><th>%</th></tr>
+                </thead>
+                <tbody id="deptRevBody"></tbody>
+            </table>
+        </div>
+    </div>
+</div>
 
 <!-- ===== JAVASCRIPT ===== -->
 <script>
@@ -1156,6 +1300,202 @@ try {
 } catch (err) {
     console.error('Sankey render failed:', err);
 }
+
+// ================================================================
+// DEPARTMENT DRILL-DOWN: index list under the Sankey + detail modal
+// Data source: window.BUDGET_DATA departments (line items, orgs, totals)
+// ================================================================
+
+// Budget-book quirks the formatter has to survive:
+//  - a year is null when a program only exists in the other year
+//    (e.g. Housing Stability has no FY2026 appropriation) -> em dash
+//  - some revenue lines are negative (state shares remitted back), so the
+//    minus sign has to land outside the dollar sign
+function fmtMoney(n) {
+    if (n == null || !Number.isFinite(n)) return '—';
+    return (n < 0 ? '-' : '') + fmtFull(Math.abs(n));
+}
+
+// Line-item text comes from the PDFs; keep stray &/< from breaking markup.
+function esc(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// Show a row whenever either year carries a nonzero amount. Filtering on
+// "> 0" would hide negative revenue offsets and the visible rows would no
+// longer add up to the department total.
+function hasAmount(v) {
+    return (Number.isFinite(v.fy25) && v.fy25 !== 0) || (Number.isFinite(v.fy26) && v.fy26 !== 0);
+}
+
+// Largest first, using whichever year is present.
+function byAmountDesc(a, b) {
+    return (b.fy26 ?? b.fy25 ?? 0) - (a.fy26 ?? a.fy25 ?? 0);
+}
+
+function newOrGoneBadge(v) {
+    if (v.fy25 == null) return ' <span class="badge-new">new FY26</span>';
+    if (v.fy26 == null) return ' <span class="badge-gone">ended</span>';
+    return '';
+}
+
+// $ change + % change cells. % uses |FY2025| as the base so a shrinking
+// negative offset still reads as an increase.
+function changeCells(v) {
+    const chg = (Number.isFinite(v.fy25) && Number.isFinite(v.fy26)) ? v.fy26 - v.fy25 : null;
+    const cls = chg > 0 ? 'up' : chg < 0 ? 'down' : '';
+    const pctTxt = (chg != null && v.fy25) ? (100 * chg / Math.abs(v.fy25)).toFixed(1) + '%' : '—';
+    return `<td class="${cls}">${chg == null ? '—' : fmtMoney(chg)}</td><td class="${cls}">${pctTxt}</td>`;
+}
+
+function lineRows(items) {
+    return items.filter(hasAmount).sort(byAmountDesc).map(i =>
+        `<tr><td>${esc(i.code)}</td><td>${esc(i.desc)}${newOrGoneBadge(i)}</td>` +
+        `<td>${fmtMoney(i.fy25)}</td><td>${fmtMoney(i.fy26)}</td>${changeCells(i)}</tr>`
+    ).join('');
+}
+
+// Organization (division) breakdown — the only view of internal structure for
+// departments like Public Works whose line items span several categories.
+function orgRows(orgs) {
+    return Object.entries(orgs)
+        .filter(([, v]) => hasAmount(v))
+        .sort((a, b) => byAmountDesc(a[1], b[1]))
+        .map(([name, v]) =>
+            `<tr><td>${esc(name)}${newOrGoneBadge(v)}</td>` +
+            `<td>${fmtMoney(v.fy25)}</td><td>${fmtMoney(v.fy26)}</td>${changeCells(v)}</tr>`
+        ).join('');
+}
+
+let deptTopChart = null;
+
+function openDeptDetail(name) {
+    const d = D.departments.find(x => x.name === name);
+    if (!d) return;
+
+    document.getElementById('deptModalTitle').textContent = d.name;
+
+    // Meta line: only mention the sides of the ledger the department has.
+    // Aviation - Revenues (Various) is revenue-only; Housing Stability has a
+    // null FY2026 appropriation.
+    const spends = hasAmount(d.totals) || d.totals.fy26 == null || d.totals.fy25 == null;
+    const earns = hasAmount(d.revenueTotals);
+    const meta = [d.fund === '0101' ? (d.category || 'General Fund') : `Enterprise fund ${d.fund}`];
+    if (spends) meta.push(`FY2026 appropriation ${fmtMoney(d.totals.fy26)} (FY2025 ${fmtMoney(d.totals.fy25)})`);
+    if (earns) meta.push(`FY2026 revenue ${fmtMoney(d.revenueTotals.fy26)} (FY2025 ${fmtMoney(d.revenueTotals.fy25)})`);
+    document.getElementById('deptModalMeta').textContent = meta.join(' · ');
+
+    const orgHtml = d.orgs ? orgRows(d.orgs) : '';
+    document.getElementById('deptOrgBody').innerHTML = orgHtml;
+    document.getElementById('deptOrgHead').hidden = !orgHtml;
+    document.getElementById('deptOrgTable').hidden = !orgHtml;
+
+    const expHtml = lineRows(d.expenses);
+    document.getElementById('deptExpBody').innerHTML = expHtml;
+    document.getElementById('deptExpHead').hidden = !expHtml;
+    document.getElementById('deptExpTable').hidden = !expHtml;
+
+    const revHtml = lineRows(d.revenues);
+    document.getElementById('deptRevBody').innerHTML = revHtml;
+    document.getElementById('deptRevHead').hidden = !revHtml;
+    document.getElementById('deptRevTable').hidden = !revHtml;
+
+    // Top-items bar chart: expenses when there are any (revenue-only
+    // departments chart their revenues), FY2026 unless that year is empty.
+    const src = d.expenses.some(hasAmount) ? d.expenses : d.revenues;
+    const y = src.some(i => Number.isFinite(i.fy26) && i.fy26 > 0) ? 'fy26' : 'fy25';
+    const top = src.filter(i => Number.isFinite(i[y]) && i[y] > 0).sort((a, b) => b[y] - a[y]).slice(0, 8);
+
+    if (deptTopChart) {
+        deptTopChart.destroy();
+        deptTopChart = null;
+    }
+    document.getElementById('deptChartWrap').hidden = !top.length;
+    if (top.length) {
+        deptTopChart = new Chart(document.getElementById('deptTopChart').getContext('2d'), {
+            type: 'bar',
+            data: {
+                labels: top.map(i => i.desc),
+                datasets: [{
+                    label: y === 'fy26' ? 'FY2026' : 'FY2025',
+                    data: top.map(i => i[y]),
+                    backgroundColor: FLOW_COLORS[d.category] || '#2c7bc0',
+                    borderRadius: 4,
+                }]
+            },
+            options: {
+                indexAxis: 'y',
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: false,
+                plugins: {
+                    legend: { display: false },
+                    datalabels: { display: false },
+                    tooltip: {
+                        callbacks: { label: ctx => ` ${ctx.dataset.label}: ${fmtFull(ctx.parsed.x)}` }
+                    }
+                },
+                scales: {
+                    x: { ticks: { callback: v => fmt(v) } },
+                    y: { grid: { display: false }, ticks: { font: { size: 11 } } }
+                }
+            },
+        });
+    }
+
+    document.getElementById('deptModal').hidden = false;
+}
+
+// Replaces the Sankey's no-op stub declared above.
+onSankeyDeptClick = openDeptDetail;
+
+function closeDeptDetail() {
+    document.getElementById('deptModal').hidden = true;
+}
+
+document.querySelector('#deptModal .modal-close').addEventListener('click', closeDeptDetail);
+document.getElementById('deptModal').addEventListener('click', e => {
+    if (e.target.id === 'deptModal') closeDeptDetail();
+});
+document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') closeDeptDetail();
+});
+
+// ---- Department index list -------------------------------------------------
+// Every department is reachable here; the Sankey only makes the ~19
+// single-category General Fund bands clickable.
+(function buildDeptList() {
+    const el = document.getElementById('deptList');
+    if (!el) return;
+
+    // Sort weight: FY2026 appropriation, falling back to FY2025, then to
+    // revenue for revenue-only departments.
+    const weight = d => (d.totals.fy26 ?? d.totals.fy25 ?? 0) || (d.revenueTotals.fy26 ?? d.revenueTotals.fy25 ?? 0);
+    // Keep a department if either side of its ledger has money in either year.
+    const listed = D.departments.filter(d => hasAmount(d.totals) || hasAmount(d.revenueTotals));
+    const groups = [
+        ['General Fund', listed.filter(d => d.fund === '0101')],
+        ['Enterprise Funds', listed.filter(d => d.fund !== '0101')],
+    ];
+
+    for (const [label, members] of groups) {
+        if (!members.length) continue;
+        const head = document.createElement('div');
+        head.className = 'dept-list-label';
+        head.textContent = label;
+        el.appendChild(head);
+        for (const d of members.sort((a, b) => weight(b) - weight(a))) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.textContent = d.fund === '0101' ? d.name : `${d.name} (Enterprise)`;
+            btn.title = hasAmount(d.totals)
+                ? `FY2026 appropriation ${fmtMoney(d.totals.fy26)}`
+                : `FY2026 revenue ${fmtMoney(d.revenueTotals.fy26)}`;
+            btn.addEventListener('click', () => openDeptDetail(d.name));
+            el.appendChild(btn);
+        }
+    }
+})();
 </script>
 </body>
 </html>
