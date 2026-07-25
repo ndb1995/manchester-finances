@@ -1,6 +1,8 @@
 # tests/test_categories.py
 import functools
 
+import pytest
+
 import extract_budget as eb
 from category_map import EXPECTED, EXPECTED_CATEGORIES
 
@@ -57,6 +59,21 @@ def test_public_works_splits_three_ways_exactly():
             got[cat] = got.get(cat, 0) + amt
         assert got == want
         assert sum(got.values()) == sum(pw["expenses"].values())
+
+def test_pw_org_category_rejects_an_unrecognized_organization():
+    # the PW split is prefix-driven, so a new or renamed organization must fail loudly rather
+    # than fall into whichever branch happens to be last. Mirrors the agency-level guard.
+    from category_map import PW_ORG_CATEGORY
+    with pytest.raises(SystemExit, match="Zoning-Enforcement"):
+        PW_ORG_CATEGORY("Zoning-Enforcement")
+
+def test_unrecognized_public_works_organization_stops_categorize():
+    # the guard has to be reachable through the real code path, not just callable directly
+    book = {"agencies": {"Public Works": {
+        "name": "Public Works", "fund_code": "0101", "expenses": {}, "revenues": {},
+        "org_expenses": {"Zoning-Enforcement": {("0110", "Regular Salary"): 1}}}}}
+    with pytest.raises(SystemExit, match="Zoning-Enforcement"):
+        eb.categorize(book)
 
 def test_unattributed_public_works_section_is_culture_and_recreation():
     # the West Side Arena and Derryfield sections lost their org labels to split totals
