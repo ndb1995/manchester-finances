@@ -114,6 +114,36 @@ def test_fee_keywords_catch_permit_applications_and_recreation_charges():
                  "Ice Arenas", "Drop-Off Center Revenue", "Aquatics"):
         assert g("4999", desc) == "Fees, Permits & Charges", desc
 
+def _gf_lines(pdf, code):
+    return [(d, v) for a in parsed(pdf)["agencies"].values() if a["fund_code"] == "0101"
+            for (c, d), v in a["revenues"].items() if c == code]
+
+def test_object_code_4820_is_investment_income_in_both_years():
+    # the book renames this line between books -- FY2025 'Transfer', FY2026 'Dividend', same
+    # code, same agency, same 550,100 -- so routing it by description moved it between groups
+    # and showed a spurious year-over-year shift. The object code is the stable fact.
+    from category_map import revenue_group as g
+    assert g("4820", "Transfer") == "Investment & Dividend Income"
+    assert g("4820", "Dividend") == "Investment & Dividend Income"
+    for pdf in (FY26, FY25):
+        lines = _gf_lines(pdf, "4820")
+        assert lines, f"{pdf} has no 4820 revenue"
+        for desc, _ in lines:
+            assert g("4820", desc) == "Investment & Dividend Income", (pdf, desc)
+    assert ("Transfer", 550_100) in _gf_lines(FY25, "4820")
+    assert ("Dividend", 550_100) in _gf_lines(FY26, "4820")
+
+def test_ice_keyword_is_word_boundary_matched():
+    from category_map import revenue_group as g
+    assert g("4426", "Ice Rates") == "Fees, Permits & Charges"
+    assert g("4431", "Ice Logos") == "Fees, Permits & Charges"
+    # these two are genuine license fees, so they must stay fees -- but on an honest keyword,
+    # not on the letters inside 'Serv-ice' and 'Dev-ice-s'
+    assert g("4699", "Food Service Establishments") == "Fees, Permits & Charges"
+    assert g("4709", "Mech Devices - Each Additional") == "Fees, Permits & Charges"
+    # a description that merely contains the letters is not a fee
+    assert g("4999", "Notice of Service") == "Other Revenue"
+
 def test_every_revenue_group_is_nonempty_in_both_years():
     want = {"Meals & Rooms Tax", "Motor Vehicle Fees", "Investment & Dividend Income",
             "State Aid & Grants", "Chargebacks & Reimbursements", "Other Taxes & PILOTs",
