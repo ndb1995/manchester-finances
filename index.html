@@ -416,23 +416,25 @@
         </div>
 
         <div class="kpi-row" id="kpiRow">
+            <!-- Figures are rewritten from the data constants on load; the text
+                 here is the FY2026 budget-book wording the tripwire checks against. -->
             <div class="kpi-card">
-                <div class="value">$434.5M</div>
+                <div class="value" id="kpiTotal">$434.5M</div>
                 <div class="label">Total Budget</div>
-                <div class="change up">↑ 5.0% from FY2025</div>
+                <div class="change up" id="kpiTotalChange">↑ 5.0% from FY2025</div>
             </div>
             <div class="kpi-card">
-                <div class="value">$196.5M</div>
+                <div class="value" id="kpiGeneralFund">$196.5M</div>
                 <div class="label">General Fund</div>
-                <div class="change up">↑ 5.8% from FY2025</div>
+                <div class="change up" id="kpiGeneralFundChange">↑ 5.8% from FY2025</div>
             </div>
             <div class="kpi-card">
-                <div class="value">$238.0M</div>
+                <div class="value" id="kpiMsd">$238.0M</div>
                 <div class="label">School District (MSD)</div>
-                <div class="change up">↑ 4.4% from FY2025</div>
+                <div class="change up" id="kpiMsdChange">↑ 4.4% from FY2025</div>
             </div>
             <div class="kpi-card">
-                <div class="value">55%</div>
+                <div class="value" id="kpiEducationShare">55%</div>
                 <div class="label">Education Share</div>
                 <div class="change">of total budget</div>
             </div>
@@ -492,7 +494,7 @@
 
         <div class="insight-box">
             <h4>💡 Key Insight</h4>
-            <p><strong>Education</strong> receives the largest share at <strong>$238M (54.8%)</strong> of the total budget, followed by <strong>Public Safety</strong> at <strong>$61.6M (14.2%)</strong>. Together, Education, Public Safety, and Retirement benefits account for over three-quarters of all spending.</p>
+            <p><strong>Education</strong> receives the largest share at <strong id="insightEducation">$238M (54.8%)</strong> of the total budget, followed by <strong>Public Safety</strong> at <strong id="insightPublicSafety">$61.6M (14.2%)</strong>. Together, Education, Public Safety, and Retirement benefits account for over three-quarters of all spending.</p>
         </div>
     </div>
 </section>
@@ -582,7 +584,7 @@
 
         <div class="insight-box">
             <h4>💡 Key Insight</h4>
-            <p>The <strong>General Fund</strong> has grown from <strong>$169.9M</strong> in FY2023 to <strong>$196.5M</strong> in FY2026 — an increase of <strong>15.6%</strong> over four years. Excluding the school district budget, <strong>Public Safety</strong> consumes nearly a third of the General Fund.</p>
+            <p>The <strong>General Fund</strong> has grown from <strong id="insightGfFy23">$169.9M</strong> in FY2023 to <strong id="insightGfFy26">$196.5M</strong> in FY2026 — an increase of <strong>15.6%</strong> over four years. Excluding the school district budget, <strong>Public Safety</strong> consumes nearly a third of the General Fund.</p>
         </div>
     </div>
 </section>
@@ -700,22 +702,50 @@ const budgetData = [
     { category: 'Economic Development',        fy23:     10000, fy24:    175907, fy25: catFY('Economic Development', 'fy25', 0),       fy26: catFY('Economic Development', 'fy26', 1),       color: '#ffc107' },
 ];
 
+// Same tripwire, for the citywide total: it is its own sum in the extractor,
+// not the sum of the categories above, so a category check cannot cover it.
+const LEGACY_TOTALS = { fy25: 413742767, fy26: 434511186 };
+
+function citywideFY(y) {
+    if (!HAVE_DATA) return LEGACY_TOTALS[y];
+    const v = window.BUDGET_DATA.citywide[y];
+    if (v !== LEGACY_TOTALS[y])
+        console.error(`BUDGET_DATA mismatch for citywide ${y}: ${v} != ${LEGACY_TOTALS[y]}`);
+    return v;
+}
+
 const totals = {
     fy23: 356965816,
     fy24: 370455386,
-    fy25: HAVE_DATA ? window.BUDGET_DATA.citywide.fy25 : 413742767,
-    fy26: HAVE_DATA ? window.BUDGET_DATA.citywide.fy26 : 434511186,
+    fy25: citywideFY('fy25'),
+    fy26: citywideFY('fy26'),
 };
 
-// Stays literal: BUDGET_DATA holds the General Fund only implicitly, as the sum
-// of property tax plus non-tax revenue, so deriving these adds no information
-// while the per-category tripwire above already covers the spending side.
+// Stays literal: BUDGET_DATA has no General Fund field, only the two ways of
+// arriving at one. Both are checked against these numbers below.
 const generalFund = {
     fy23: 169867998,
     fy24: 178696166,
     fy25: 185760157,
     fy26: 196511261,
 };
+
+// The extraction pins the General Fund total twice over — citywide minus the
+// school district, and property tax plus non-tax revenue — so the literals
+// above are still verifiable even though nothing reads them from the payload.
+function checkGeneralFund() {
+    if (!HAVE_DATA) return;
+    const B = window.BUDGET_DATA;
+    for (const y of ['fy25', 'fy26']) {
+        const netOfSchools = B.citywide[y] - B.categories['Education (MSD)'][y];
+        const taxPlusRevenue = B.propertyTax.gf[y]
+            + Object.values(B.revenueGroups).reduce((s, v) => s + v[y], 0);
+        if (netOfSchools !== generalFund[y] || taxPlusRevenue !== generalFund[y])
+            console.error(`BUDGET_DATA mismatch for General Fund ${y}: `
+                + `${netOfSchools} (citywide - schools) / ${taxPlusRevenue} (tax + revenue) != ${generalFund[y]}`);
+    }
+}
+checkGeneralFund();
 
 const msdBudget = {
     fy23: 187097818,
@@ -788,6 +818,63 @@ function populateTable() {
     tbody.appendChild(trGF);
 }
 populateTable();
+
+// ================================================================
+// POPULATE HERO KPIs + INSIGHT COPY
+// ================================================================
+// These figures were typed into the markup by hand. Rendering them from the
+// data constants keeps a re-extraction from leaving a stale headline number on
+// a page whose charts have already moved, and LEGACY_COPY holds the wording
+// that shipped so any divergence is reported rather than quietly published.
+const LEGACY_COPY = {
+    kpiTotal: '$434.5M',            kpiTotalChange: '↑ 5.0% from FY2025',
+    kpiGeneralFund: '$196.5M',      kpiGeneralFundChange: '↑ 5.8% from FY2025',
+    kpiMsd: '$238.0M',              kpiMsdChange: '↑ 4.4% from FY2025',
+    kpiEducationShare: '55%',
+    insightEducation: '$238M (54.8%)',
+    insightPublicSafety: '$61.6M (14.2%)',
+    insightGfFy23: '$169.9M',
+    insightGfFy26: '$196.5M',
+};
+
+// The insight sentence writes Education's share without a decimal ("$238M")
+// while every other figure carries one; both forms are the published wording,
+// so keep them rather than restyle the copy.
+function fmtM0(n) {
+    return '$' + Math.round(n / 1e6) + 'M';
+}
+
+function yoy(now, before) {
+    return '↑ ' + pct(now - before, before) + ' from FY2025';
+}
+
+// Writes the figure and reports if the data no longer agrees with the wording.
+function setCopy(id, text) {
+    if (text !== LEGACY_COPY[id])
+        console.error(`BUDGET_DATA mismatch for copy ${id}: ${text} != ${LEGACY_COPY[id]}`);
+    document.getElementById(id).textContent = text;
+}
+
+function populateCopy() {
+    setCopy('kpiTotal', fmt(totals.fy26));
+    setCopy('kpiTotalChange', yoy(totals.fy26, totals.fy25));
+    setCopy('kpiGeneralFund', fmt(generalFund.fy26));
+    setCopy('kpiGeneralFundChange', yoy(generalFund.fy26, generalFund.fy25));
+    setCopy('kpiMsd', fmt(msdBudget.fy26));
+    setCopy('kpiMsdChange', yoy(msdBudget.fy26, msdBudget.fy25));
+    setCopy('kpiEducationShare', ((100 * msdBudget.fy26) / totals.fy26).toFixed(0) + '%');
+
+    const ps = budgetData.find(d => d.category === 'Public Safety');
+    setCopy('insightEducation', `${fmtM0(msdBudget.fy26)} (${pct(msdBudget.fy26, totals.fy26)})`);
+    setCopy('insightPublicSafety', `${fmt(ps.fy26)} (${pct(ps.fy26, totals.fy26)})`);
+
+    // The same sentence's four-year growth figure is deliberately left in the
+    // markup: it reads 15.6% where these numbers give 15.7%, and correcting
+    // published copy is not this page's call to make silently.
+    setCopy('insightGfFy23', fmt(generalFund.fy23));
+    setCopy('insightGfFy26', fmt(generalFund.fy26));
+}
+populateCopy();
 
 // ================================================================
 // CHART: Allocation (Pie / Doughnut / Bar)
