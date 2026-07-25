@@ -3,7 +3,8 @@ import re, sys
 
 import pypdf
 
-from category_map import EXPECTED, TRANSIT_OBJECT
+from category_map import (AGENCY_CATEGORY, EXPECTED, NONDEPT_OBJECT_CATEGORY, PW_ORG_CATEGORY,
+                          TRANSIT_OBJECT, UNATTRIBUTED, revenue_group)
 
 AMOUNT = r"[\d][\d,\s]*(?:\.\d+)?"
 ANY_AMOUNT = rf"(?:\({AMOUNT}\)|{AMOUNT})"  # the book prints negatives in parentheses
@@ -20,7 +21,6 @@ STRUCT_RE = re.compile(r"^(Fund:|Agency:|Organization:|FY\s*\d{4}\b)")
 JUNK_PREFIX_RE = re.compile(r"^[;:]+(?=\d{3,4}\s)")  # text-layer artifact: ';0460 Safety 1,080'
 HEADER = "Object Description Budget"
 DEPT_LINE_RE = re.compile(r"^[A-Za-z][A-Za-z&,.'/-]*(?: [A-Za-z&,.'/-]+)*$")  # 'Public Works'
-UNATTRIBUTED = "(unattributed)"  # section whose split total left it without an org label
 
 def parse_amount(s):
     """'844,355' -> 844355; '(160,000)' -> -160000; '352,121.00' -> 352121 (nearest dollar)."""
@@ -276,6 +276,54 @@ def validate_book(book, fy_label):
     if abs(gf_rev - exp["gf_revenue"]) > 1:
         errors.append(f"{fy_label} GF revenue total {gf_rev:,} != expected {exp['gf_revenue']:,}")
     return errors
+
+def _agency_category_items(a):
+    """Yield (category, amount) for one agency's expense items.
+
+    Most departments belong to a single category. Two do not: Public Works splits across
+    three, so its `org_expenses` breakdown is used instead of its flat bucket (the two are
+    equal by construction -- the aggregation checks it), and Non-Departmental Items splits by
+    object code. The transit subsidy is dropped here, matching `validate_book`, so the
+    categories still add up to the general fund total the book prints.
+    """
+    name = a["name"]
+    if name in AGENCY_CATEGORY:
+        for _, amt in a["expenses"].items():
+            yield AGENCY_CATEGORY[name], amt
+    elif "Non-Departmental" in name:
+        for (code, desc), amt in a["expenses"].items():
+            if code != TRANSIT_OBJECT:
+                yield NONDEPT_OBJECT_CATEGORY(code, desc), amt
+    elif name == "Public Works":
+        for org, items in a["org_expenses"].items():
+            cat = PW_ORG_CATEGORY(org)
+            for _, amt in items.items():
+                yield cat, amt
+    else:
+        raise SystemExit(f"Agency not mapped to a category: {name!r}")
+
+def categorize(book):
+    """General fund expenses by spending category. Enterprise funds are excluded by fund
+    code, not by name: they are separately funded and never part of the tax-supported total."""
+    out = {}
+    for a in book["agencies"].values():
+        if a["fund_code"] != "0101":
+            continue
+        for cat, amt in _agency_category_items(a):
+            out[cat] = out.get(cat, 0) + amt
+    return out
+
+def group_revenues(book):
+    """General fund revenues by source group. Every line lands in exactly one group, so the
+    groups sum to the general fund revenue total."""
+    out = {}
+    for a in book["agencies"].values():
+        if a["fund_code"] != "0101":
+            continue
+        for (code, desc), amt in a["revenues"].items():
+            g = revenue_group(code, desc)
+            out[g] = out.get(g, 0) + amt
+    return out
 
 if __name__ == "__main__":
     if len(sys.argv) >= 4 and sys.argv[1] == "--dump":
