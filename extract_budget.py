@@ -1,10 +1,10 @@
 """Extract Manchester NH budget book PDFs into data.js. No OCR: pypdf text layer only."""
-import re, sys
+import json, re, sys
 
 import pypdf
 
-from category_map import (AGENCY_CATEGORY, EXPECTED, NONDEPT_OBJECT_CATEGORY, PW_ORG_CATEGORY,
-                          TRANSIT_OBJECT, UNATTRIBUTED, revenue_group)
+from category_map import (AGENCY_CATEGORY, EXPECTED, EXPECTED_CATEGORIES, NONDEPT_OBJECT_CATEGORY,
+                          PW_ORG_CATEGORY, TRANSIT_OBJECT, UNATTRIBUTED, revenue_group)
 
 AMOUNT = r"[\d][\d,\s]*(?:\.\d+)?"
 ANY_AMOUNT = rf"(?:\({AMOUNT}\)|{AMOUNT})"  # the book prints negatives in parentheses
@@ -263,14 +263,19 @@ def _page_orgs(sections, meta, sub_agency):
         named[blanks[0]] = unclaimed[0]
     return [n or UNATTRIBUTED for n in named]
 
-def validate_book(book, fy_label):
-    errors, exp = list(book.get("warnings", ())), EXPECTED[fy_label]
+def gf_totals(book):
+    """(expense, revenue) for the general fund, transit subsidy excluded as the book directs."""
     gf_exp = gf_rev = 0
     for a in book["agencies"].values():
         if a["fund_code"] != "0101":
             continue
         gf_exp += sum(v for (code, _), v in a["expenses"].items() if code != TRANSIT_OBJECT)
         gf_rev += sum(a["revenues"].values())
+    return gf_exp, gf_rev
+
+def validate_book(book, fy_label):
+    errors, exp = list(book.get("warnings", ())), EXPECTED[fy_label]
+    gf_exp, gf_rev = gf_totals(book)
     if abs(gf_exp - exp["gf_total"]) > 1:
         errors.append(f"{fy_label} GF expense total {gf_exp:,} != expected {exp['gf_total']:,}")
     if abs(gf_rev - exp["gf_revenue"]) > 1:
@@ -325,7 +330,171 @@ def group_revenues(book):
             out[g] = out.get(g, 0) + amt
     return out
 
+MSD_CATEGORY = "Education (MSD)"  # a constant, not parsed: the school district prints its own book
+# The books file airport revenue under the literal agency name 'Various' in the aviation fund
+# instead of under 'Aviation'. Merging the two would break the totals the book prints for each,
+# so the entry stays separate and only its display name is fixed up here.
+DISPLAY_NAME = {"Various": "Aviation - Revenues (Various)"}
+EMPTY_AGENCY = {"code": None, "fund_code": None, "expenses": {}, "revenues": {}, "org_expenses": {}}
+
+def _merge_items(items25, items26):
+    """Pair two years' line items by (object code, description).
+
+    A missing year is `None`, never 0: 'not budgeted' and 'budgeted at zero' are different
+    facts, and the site labels them differently.
+    """
+    keys = sorted(set(items25) | set(items26), key=lambda k: (k[0], k[1]))
+    return [{"code": c, "desc": d,
+             "fy25": items25.get((c, d)), "fy26": items26.get((c, d))}
+            for c, d in keys]
+
+def _year_total(agency, bucket):
+    """Sum one bucket, or None when the department is absent from that year's book."""
+    return None if agency is None else sum(agency[bucket].values())
+
+def _org_totals(a25, a26):
+    """{organization: {fy25, fy26}} where the book breaks a department into organizations.
+
+    Totals only -- the item-level organization detail restates the department's own line items,
+    which the payload already carries. `UNATTRIBUTED` passes through as its literal
+    '(unattributed)' so the site can label those sections honestly.
+    """
+    orgs25 = a25["org_expenses"] if a25 else {}
+    orgs26 = a26["org_expenses"] if a26 else {}
+    return {org: {"fy25": sum(orgs25[org].values()) if org in orgs25 else None,
+                  "fy26": sum(orgs26[org].values()) if org in orgs26 else None}
+            for org in sorted(set(orgs25) | set(orgs26))}
+
+def _department_category(name, fund):
+    """The site's spending category for one department, or a hard error for a new one.
+
+    Enterprise funds are their own band: they are separately funded and outside the tax-supported
+    total. Within the general fund, Non-Departmental Items and Public Works are the two
+    departments `categorize` splits internally, so they get labels the site can show instead of a
+    single category. Anything else unmapped is a failure, not a default -- a renamed department
+    would otherwise reach the flow diagram with a null category and silently disappear.
+    """
+    if fund != "0101":
+        return "Enterprise Funds"
+    if name in AGENCY_CATEGORY:
+        return AGENCY_CATEGORY[name]
+    if "Non-Departmental" in name:
+        return "Other"
+    if name == "Public Works":
+        return "Mixed (see line items)"
+    raise SystemExit(f"Department not mapped to a category: {name!r}")
+
+def build_budget_data(books):
+    """Merge both books into the single payload the site consumes as `window.BUDGET_DATA`."""
+    b25, b26 = books["FY2025"], books["FY2026"]
+    cats25, cats26 = categorize(b25), categorize(b26)
+    cats = {c: {"fy25": cats25.get(c, 0), "fy26": cats26.get(c, 0)}
+            for c in EXPECTED_CATEGORIES["FY2026"]}
+    cats[MSD_CATEGORY] = {"fy25": EXPECTED["FY2025"]["msd_total"],
+                          "fy26": EXPECTED["FY2026"]["msd_total"]}
+    rev25, rev26 = group_revenues(b25), group_revenues(b26)
+    revgroups = {g: {"fy25": rev25.get(g, 0), "fy26": rev26.get(g, 0)}
+                 for g in sorted(set(rev25) | set(rev26))}
+    departments = []
+    for name in sorted(set(b25["agencies"]) | set(b26["agencies"])):
+        a25, a26 = b25["agencies"].get(name), b26["agencies"].get(name)
+        e25, e26 = (a25 or EMPTY_AGENCY), (a26 or EMPTY_AGENCY)
+        fund = e26["fund_code"] or e25["fund_code"]
+        dept = {"name": DISPLAY_NAME.get(name, name), "bookName": name,
+                "code": e26["code"] or e25["code"], "fund": fund,
+                "category": _department_category(name, fund),
+                "expenses": _merge_items(e25["expenses"], e26["expenses"]),
+                "revenues": _merge_items(e25["revenues"], e26["revenues"]),
+                "totals": {"fy25": _year_total(a25, "expenses"),
+                           "fy26": _year_total(a26, "expenses")},
+                "revenueTotals": {"fy25": _year_total(a25, "revenues"),
+                                  "fy26": _year_total(a26, "revenues")}}
+        orgs = _org_totals(a25, a26)
+        if orgs:
+            dept["orgs"] = orgs
+        departments.append(dept)
+    departments.sort(key=lambda d: d["name"])  # display order, so 'Various' sits with Aviation
+    x25, x26 = EXPECTED["FY2025"], EXPECTED["FY2026"]
+    return {"years": ["FY2025", "FY2026"], "categories": cats, "revenueGroups": revgroups,
+        "propertyTax": {"gf": {"fy25": x25["gf_total"] - x25["gf_revenue"],
+                               "fy26": x26["gf_total"] - x26["gf_revenue"]},
+                        "msd": {"fy25": x25["msd_property_tax"], "fy26": x26["msd_property_tax"]}},
+        "msdOther": {"fy25": x25["msd_total"] - x25["msd_property_tax"],
+                     "fy26": x26["msd_total"] - x26["msd_property_tax"]},
+        "citywide": {"fy25": x25["gf_total"] + x25["msd_total"],
+                     "fy26": x26["gf_total"] + x26["msd_total"]},
+        "departments": departments}
+
+def render_data_js(data):
+    """The committed build artifact: a plain assignment, so the site loads from disk with no
+    server and no build step."""
+    return ("// GENERATED by extract_budget.py -- do not edit by hand.\n"
+            "// Regenerate: python extract_budget.py Budget_Book_2025.pdf Budget_Book_2026.pdf\n"
+            "window.BUDGET_DATA = " + json.dumps(data, indent=1) + ";\n")
+
+def _check_book(book, fy):
+    """Every anchor for one book, as fy-labelled failure strings (empty when it all agrees)."""
+    failures = [f if f.startswith(fy) else f"{fy} {f}" for f in validate_book(book, fy)]
+    got = categorize(book)
+    for c, exp in EXPECTED_CATEGORIES[fy].items():
+        if abs(got.get(c, 0) - exp) > 1:
+            failures.append(f"{fy} category {c}: {got.get(c, 0):,} != {exp:,}")
+    for c in set(got) - set(EXPECTED_CATEGORIES[fy]):
+        failures.append(f"{fy} unexpected category {c}: {got[c]:,}")
+    return failures
+
+def _report(books, data, failures):
+    print("=== Reconciliation report ===")
+    for fy, book in books.items():
+        exp, (gf_exp, gf_rev) = EXPECTED[fy], gf_totals(book)
+        cats = categorize(book)
+        groups = group_revenues(book)
+        matched = sum(1 for c, v in EXPECTED_CATEGORIES[fy].items()
+                      if abs(cats.get(c, 0) - v) <= 1)
+        print(f"{fy}: GF/category/revenue checks",
+              "OK" if not any(f.startswith(fy) for f in failures) else "FAILED")
+        print(f"  agencies parsed        {len(book['agencies']):>15,}"
+              f"   parser warnings {len(book['warnings'])}")
+        print(f"  GF expenses (net)      {gf_exp:>15,}   expected {exp['gf_total']:>15,}")
+        print(f"  GF revenues            {gf_rev:>15,}   expected {exp['gf_revenue']:>15,}")
+        print(f"  property tax to GF     {gf_exp - gf_rev:>15,}"
+              f"   expected {exp['gf_total'] - exp['gf_revenue']:>15,}")
+        print(f"  categories matched     {matched:>15,} / {len(EXPECTED_CATEGORIES[fy])}"
+              f"   summing {sum(cats.values()):,}")
+        print(f"  revenue groups         {len(groups):>15,}   summing {sum(groups.values()):,}")
+        print(f"  MSD total (constant)   {exp['msd_total']:>15,}"
+              f"   of which property tax {exp['msd_property_tax']:,}")
+    gf_depts = [d for d in data["departments"] if d["fund"] == "0101"]
+    print(f"departments emitted      {len(data['departments']):>15,}"
+          f"   ({len(gf_depts)} general fund, {len(data['departments']) - len(gf_depts)} enterprise)")
+    print(f"  expense line items     {sum(len(d['expenses']) for d in data['departments']):>15,}"
+          f"   revenue line items {sum(len(d['revenues']) for d in data['departments']):,}")
+    for fy, key in (("FY2025", "fy25"), ("FY2026", "fy26")):
+        print(f"citywide {fy}          {data['citywide'][key]:>15,}"
+              f"   = GF {EXPECTED[fy]['gf_total']:,} + MSD {EXPECTED[fy]['msd_total']:,}")
+    for f in failures:
+        print("MISMATCH:", f)
+
+def main(argv):
+    if len(argv) >= 3 and argv[0] == "--dump":
+        print(pypdf.PdfReader(argv[1]).pages[int(argv[2])].extract_text())
+        return 0
+    if len(argv) < 2:
+        print("usage: extract_budget.py Budget_Book_2025.pdf Budget_Book_2026.pdf", file=sys.stderr)
+        return 2
+    books, failures = {}, []
+    for fy, path in (("FY2025", argv[0]), ("FY2026", argv[1])):
+        books[fy] = parse_book(path)
+        failures += _check_book(books[fy], fy)
+    data = build_budget_data(books)
+    _report(books, data, failures)
+    if failures:
+        print(f"FAILED: {len(failures)} check(s) did not reconcile; data.js not written")
+        return 1
+    with open("data.js", "w", encoding="utf-8", newline="\n") as fh:  # LF, as the rest of the repo
+        fh.write(render_data_js(data))
+    print("Wrote data.js")
+    return 0
+
 if __name__ == "__main__":
-    if len(sys.argv) >= 4 and sys.argv[1] == "--dump":
-        print(pypdf.PdfReader(sys.argv[2]).pages[int(sys.argv[3])].extract_text())
-        sys.exit(0)
+    sys.exit(main(sys.argv[1:]))
