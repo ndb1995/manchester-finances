@@ -356,6 +356,12 @@
         .badge-new { background: var(--teal); color: var(--white); }
         .badge-gone { background: var(--gray); color: var(--white); }
         .dept-table-wrap { overflow-x: auto; }
+        /* Caption under the organization table, explaining its two look-alike rows. */
+        .dept-table-note {
+            margin-top: 8px;
+            font-size: 0.85rem;
+            color: var(--gray);
+        }
 
         /* ===== FOOTER ===== */
         .footer {
@@ -625,6 +631,7 @@
                 <tbody id="deptOrgBody"></tbody>
             </table>
         </div>
+        <p id="deptOrgNote" class="dept-table-note" hidden>&ldquo;(unattributed)&rdquo; is a division the budget book prints without a name we can read. &ldquo;Not attributed to an organization&rdquo; is money the book never files under any division. Both are already counted in the department total.</p>
         <h4 id="deptExpHead">Expense line items</h4>
         <div class="dept-table-wrap">
             <table class="dept-table" id="deptExpTable">
@@ -651,27 +658,58 @@
 // ================================================================
 // DATA
 // ================================================================
+// FY2025 and FY2026 come from data.js (extract_budget.py). FY2023 and FY2024
+// stay hand-entered: the extractor only covers the two budget books we have.
+//
+// The numbers below were hand-entered from the FY2026 budget book before the
+// extractor existed and the extraction was validated against them, so they are
+// kept as a tripwire: a future extraction that silently changes a category
+// total shows up as a console error instead of a quietly redrawn chart.
+const LEGACY_FY = {
+    'Education (MSD)': [227982610, 237999925], 'Public Safety': [57760666, 61551254],
+    'Retirement': [27291207, 29706516], 'General Government': [25559290, 26788383],
+    'Highway & Streets': [19968652, 21545314], 'Health, Dental & Insurance': [17195489, 17595489],
+    'Debt Service': [16100000, 16100000], 'Other': [10734674, 11050579],
+    'Culture & Recreation': [7618111, 7764641], 'Health & Welfare': [3308180, 4104665],
+    'Economic Development': [223888, 304420],
+};
+
+// Falsy when data.js is missing or failed to load; every consumer then falls
+// back to the legacy figures and the money-flow section shows a notice.
+const HAVE_DATA = typeof window.BUDGET_DATA === 'object' && window.BUDGET_DATA;
+
+function catFY(name, y, legacyIdx) {
+    if (!HAVE_DATA) return LEGACY_FY[name][legacyIdx];
+    const v = window.BUDGET_DATA.categories[name][y];
+    if (v !== LEGACY_FY[name][legacyIdx])
+        console.error(`BUDGET_DATA mismatch for ${name} ${y}: ${v} != ${LEGACY_FY[name][legacyIdx]}`);
+    return v;
+}
+
 const budgetData = [
-    { category: 'Education (MSD)',             fy23: 187097818, fy24: 191759220, fy25: 227982610, fy26: 237999925, color: '#1e5a99' },
-    { category: 'Public Safety',               fy23:  51633037, fy24:  55605988, fy25:  57760666, fy26:  61551254, color: '#dc3545' },
-    { category: 'Retirement',                  fy23:  25134031, fy24:  25555116, fy25:  27291207, fy26:  29706516, color: '#6f42c1' },
-    { category: 'General Government',          fy23:  18742866, fy24:  25011825, fy25:  25559290, fy26:  26788383, color: '#17a2b8' },
-    { category: 'Highway & Streets',           fy23:  21421714, fy24:  19504209, fy25:  19968652, fy26:  21545314, color: '#fd7e14' },
-    { category: 'Health, Dental & Insurance',  fy23:  13299242, fy24:  15276990, fy25:  17195489, fy26:  17595489, color: '#0dcaf0' },
-    { category: 'Debt Service',                fy23:  16100000, fy24:  16100000, fy25:  16100000, fy26:  16100000, color: '#6c757d' },
-    { category: 'Other',                       fy23:  12799403, fy24:  11238353, fy25:  10734674, fy26:  11050579, color: '#adb5bd' },
-    { category: 'Culture & Recreation',        fy23:   6649562, fy24:   7161121, fy25:   7618111, fy26:   7764641, color: '#20c997' },
-    { category: 'Health & Welfare',            fy23:   4078143, fy24:   3066657, fy25:   3308180, fy26:   4104665, color: '#e83e8c' },
-    { category: 'Economic Development',        fy23:     10000, fy24:    175907, fy25:    223888, fy26:    304420, color: '#ffc107' },
+    { category: 'Education (MSD)',             fy23: 187097818, fy24: 191759220, fy25: catFY('Education (MSD)', 'fy25', 0),            fy26: catFY('Education (MSD)', 'fy26', 1),            color: '#1e5a99' },
+    { category: 'Public Safety',               fy23:  51633037, fy24:  55605988, fy25: catFY('Public Safety', 'fy25', 0),              fy26: catFY('Public Safety', 'fy26', 1),              color: '#dc3545' },
+    { category: 'Retirement',                  fy23:  25134031, fy24:  25555116, fy25: catFY('Retirement', 'fy25', 0),                 fy26: catFY('Retirement', 'fy26', 1),                 color: '#6f42c1' },
+    { category: 'General Government',          fy23:  18742866, fy24:  25011825, fy25: catFY('General Government', 'fy25', 0),         fy26: catFY('General Government', 'fy26', 1),         color: '#17a2b8' },
+    { category: 'Highway & Streets',           fy23:  21421714, fy24:  19504209, fy25: catFY('Highway & Streets', 'fy25', 0),          fy26: catFY('Highway & Streets', 'fy26', 1),          color: '#fd7e14' },
+    { category: 'Health, Dental & Insurance',  fy23:  13299242, fy24:  15276990, fy25: catFY('Health, Dental & Insurance', 'fy25', 0), fy26: catFY('Health, Dental & Insurance', 'fy26', 1), color: '#0dcaf0' },
+    { category: 'Debt Service',                fy23:  16100000, fy24:  16100000, fy25: catFY('Debt Service', 'fy25', 0),               fy26: catFY('Debt Service', 'fy26', 1),               color: '#6c757d' },
+    { category: 'Other',                       fy23:  12799403, fy24:  11238353, fy25: catFY('Other', 'fy25', 0),                      fy26: catFY('Other', 'fy26', 1),                      color: '#adb5bd' },
+    { category: 'Culture & Recreation',        fy23:   6649562, fy24:   7161121, fy25: catFY('Culture & Recreation', 'fy25', 0),       fy26: catFY('Culture & Recreation', 'fy26', 1),       color: '#20c997' },
+    { category: 'Health & Welfare',            fy23:   4078143, fy24:   3066657, fy25: catFY('Health & Welfare', 'fy25', 0),           fy26: catFY('Health & Welfare', 'fy26', 1),           color: '#e83e8c' },
+    { category: 'Economic Development',        fy23:     10000, fy24:    175907, fy25: catFY('Economic Development', 'fy25', 0),       fy26: catFY('Economic Development', 'fy26', 1),       color: '#ffc107' },
 ];
 
 const totals = {
     fy23: 356965816,
     fy24: 370455386,
-    fy25: 413742767,
-    fy26: 434511186,
+    fy25: HAVE_DATA ? window.BUDGET_DATA.citywide.fy25 : 413742767,
+    fy26: HAVE_DATA ? window.BUDGET_DATA.citywide.fy26 : 434511186,
 };
 
+// Stays literal: BUDGET_DATA holds the General Fund only implicitly, as the sum
+// of property tax plus non-tax revenue, so deriving these adds no information
+// while the per-category tripwire above already covers the spending side.
 const generalFund = {
     fy23: 169867998,
     fy24: 178696166,
@@ -682,8 +720,8 @@ const generalFund = {
 const msdBudget = {
     fy23: 187097818,
     fy24: 191759220,
-    fy25: 227982610,
-    fy26: 237999925,
+    fy25: catFY('Education (MSD)', 'fy25', 0),
+    fy26: catFY('Education (MSD)', 'fy26', 1),
 };
 
 // Categories excluding Education (for General Fund view)
@@ -1292,17 +1330,29 @@ function renderSankey(y) {
 // Replaced by the department drill-down.
 let onSankeyDeptClick = function(name) {};
 
-document.querySelectorAll('#flowYearToggle button').forEach(b =>
-    b.addEventListener('click', () => {
-        document.querySelectorAll('#flowYearToggle button').forEach(x => x.classList.remove('active'));
-        b.classList.add('active');
-        renderSankey(b.dataset.year);
-    }));
+// Without data.js there is no flow to draw and no department to open, so the
+// section explains how to generate the data instead of failing silently. The
+// legacy FY2023–FY2026 charts above do not depend on it and still render.
+if (HAVE_DATA) {
+    document.querySelectorAll('#flowYearToggle button').forEach(b =>
+        b.addEventListener('click', () => {
+            document.querySelectorAll('#flowYearToggle button').forEach(x => x.classList.remove('active'));
+            b.classList.add('active');
+            renderSankey(b.dataset.year);
+        }));
 
-try {
-    renderSankey('fy26');
-} catch (err) {
-    console.error('Sankey render failed:', err);
+    try {
+        renderSankey('fy26');
+    } catch (err) {
+        console.error('Sankey render failed:', err);
+    }
+} else {
+    document.getElementById('flow').innerHTML =
+        '<div class="container"><div class="section-header">'
+        + '<h2>💵 Where the Money Comes From &amp; Where It Goes</h2></div>'
+        + '<p class="subtitle" style="font-size: 0.95rem;">The money-flow chart and department detail need the '
+        + 'extracted budget data. Run <code>python extract_budget.py Budget_Book_2025.pdf Budget_Book_2026.pdf</code> '
+        + 'to generate <code>data.js</code>, then reload this page.</p></div>';
 }
 
 // ================================================================
@@ -1425,6 +1475,12 @@ function openDeptDetail(name) {
     document.getElementById('deptOrgHead').hidden = !orgHtml;
     document.getElementById('deptOrgTable').hidden = !orgHtml;
 
+    // The caption only earns its space when one of the two rows it explains is
+    // on screen — an unnamed division from the book, or the leftover row.
+    const unnamedOrg = !!d.orgs && !!d.orgs['(unattributed)'] && hasAmount(d.orgs['(unattributed)']);
+    const hasResidual = !!d.orgs && hasAmount(orgResidual(d.orgs, d.totals));
+    document.getElementById('deptOrgNote').hidden = !(orgHtml && (unnamedOrg || hasResidual));
+
     const expHtml = lineRows(d.expenses);
     document.getElementById('deptExpBody').innerHTML = expHtml;
     document.getElementById('deptExpHead').hidden = !expHtml;
@@ -1500,8 +1556,9 @@ document.addEventListener('keydown', e => {
 // Every department is reachable here; the Sankey only makes the ~19
 // single-category General Fund bands clickable.
 (function buildDeptList() {
+    // #deptList is gone when the no-data notice replaced the section above.
     const el = document.getElementById('deptList');
-    if (!el) return;
+    if (!el || !HAVE_DATA) return;
 
     // Sort weight: FY2026 appropriation, falling back to FY2025, then to
     // revenue for revenue-only departments.
