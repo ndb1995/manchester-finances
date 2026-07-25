@@ -584,7 +584,7 @@
 
         <div class="insight-box">
             <h4>💡 Key Insight</h4>
-            <p>The <strong>General Fund</strong> has grown from <strong id="insightGfFy23">$169.9M</strong> in FY2023 to <strong id="insightGfFy26">$196.5M</strong> in FY2026 — an increase of <strong>15.6%</strong> over four years. Excluding the school district budget, <strong>Public Safety</strong> consumes nearly a third of the General Fund.</p>
+            <p>The <strong>General Fund</strong> has grown from <strong id="insightGfFy23">$169.9M</strong> in FY2023 to <strong id="insightGfFy26">$196.5M</strong> in FY2026 — an increase of <strong id="insightGfGrowth">15.7%</strong> over four years. Excluding the school district budget, <strong>Public Safety</strong> consumes nearly a third of the General Fund.</p>
         </div>
     </div>
 </section>
@@ -835,6 +835,8 @@ const LEGACY_COPY = {
     insightPublicSafety: '$61.6M (14.2%)',
     insightGfFy23: '$169.9M',
     insightGfFy26: '$196.5M',
+    // Corrected: the sentence shipped with 15.6%, a truncation of 15.6849%.
+    insightGfGrowth: '15.7%',
 };
 
 // The insight sentence writes Education's share without a decimal ("$238M")
@@ -844,10 +846,6 @@ function fmtM0(n) {
     return '$' + Math.round(n / 1e6) + 'M';
 }
 
-function yoy(now, before) {
-    return '↑ ' + pct(now - before, before) + ' from FY2025';
-}
-
 // Writes the figure and reports if the data no longer agrees with the wording.
 function setCopy(id, text) {
     if (text !== LEGACY_COPY[id])
@@ -855,24 +853,35 @@ function setCopy(id, text) {
     document.getElementById(id).textContent = text;
 }
 
+// A year-over-year line, with the arrow and the up/down colour taken from the
+// sign of the change instead of assumed. Every FY2026 line is an increase, so
+// this renders exactly what the markup shipped; a future decrease would read
+// "↓ x% from FY2025" in red rather than a green rise.
+function setDelta(id, now, before) {
+    const change = now - before;
+    const direction = change < 0 ? 'down' : 'up';
+    document.getElementById(id).className = 'change ' + direction;
+    setCopy(id, `${change < 0 ? '↓' : '↑'} ${pct(Math.abs(change), before)} from FY2025`);
+}
+
 function populateCopy() {
     setCopy('kpiTotal', fmt(totals.fy26));
-    setCopy('kpiTotalChange', yoy(totals.fy26, totals.fy25));
+    setDelta('kpiTotalChange', totals.fy26, totals.fy25);
     setCopy('kpiGeneralFund', fmt(generalFund.fy26));
-    setCopy('kpiGeneralFundChange', yoy(generalFund.fy26, generalFund.fy25));
+    setDelta('kpiGeneralFundChange', generalFund.fy26, generalFund.fy25);
     setCopy('kpiMsd', fmt(msdBudget.fy26));
-    setCopy('kpiMsdChange', yoy(msdBudget.fy26, msdBudget.fy25));
+    setDelta('kpiMsdChange', msdBudget.fy26, msdBudget.fy25);
     setCopy('kpiEducationShare', ((100 * msdBudget.fy26) / totals.fy26).toFixed(0) + '%');
 
     const ps = budgetData.find(d => d.category === 'Public Safety');
     setCopy('insightEducation', `${fmtM0(msdBudget.fy26)} (${pct(msdBudget.fy26, totals.fy26)})`);
     setCopy('insightPublicSafety', `${fmt(ps.fy26)} (${pct(ps.fy26, totals.fy26)})`);
 
-    // The same sentence's four-year growth figure is deliberately left in the
-    // markup: it reads 15.6% where these numbers give 15.7%, and correcting
-    // published copy is not this page's call to make silently.
     setCopy('insightGfFy23', fmt(generalFund.fy23));
     setCopy('insightGfFy26', fmt(generalFund.fy26));
+    // The sentence shipped saying 15.6%; the four-year growth is 15.6849%, so
+    // that was a truncation, not a rounding choice. Computed and rounded here.
+    setCopy('insightGfGrowth', pct(generalFund.fy26 - generalFund.fy23, generalFund.fy23));
 }
 populateCopy();
 
