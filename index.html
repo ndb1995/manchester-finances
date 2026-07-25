@@ -342,6 +342,10 @@
         .dept-table tr:hover td { background: #f0f4ff; }
         .dept-table .up { color: var(--red); }
         .dept-table .down { color: var(--green); }
+        /* Money the book did not file under a named organization: muted, and it
+           deliberately outranks .up/.down so the gap reads as an attribution
+           artifact rather than a spending trend. */
+        .dept-table .org-residual td { color: var(--gray); font-style: italic; }
         .badge-new, .badge-gone {
             font-size: 0.72rem;
             padding: 1px 7px;
@@ -1357,14 +1361,45 @@ function lineRows(items) {
 
 // Organization (division) breakdown — the only view of internal structure for
 // departments like Public Works whose line items span several categories.
-function orgRows(orgs) {
-    return Object.entries(orgs)
+//
+// The organization figures can undershoot the department total. Aviation's
+// by-organization pages print some section totals in a colon-only form
+// ("Aviation-Parking & Roadways: 3,589,128") that the extractor deliberately
+// does not accept as a section total, so that money reaches the agency bucket
+// with no organization label. The department total and its line items are still
+// correct; only the organization split is short. Rather than let the column
+// silently fail to add up, the shortfall is shown as an explicit final row.
+//
+// Computed per year, because a department can reconcile in one year and not the
+// other, and because a year the department is absent from has a null total and
+// therefore no meaningful remainder.
+function orgResidual(orgs, totals) {
+    const gap = year => {
+        if (!Number.isFinite(totals[year])) return null;
+        const attributed = Object.values(orgs)
+            .reduce((sum, v) => sum + (Number.isFinite(v[year]) ? v[year] : 0), 0);
+        return totals[year] - attributed;
+    };
+    return { fy25: gap('fy25'), fy26: gap('fy26') };
+}
+
+function orgRows(orgs, totals) {
+    const rows = Object.entries(orgs)
         .filter(([, v]) => hasAmount(v))
         .sort((a, b) => byAmountDesc(a[1], b[1]))
         .map(([name, v]) =>
             `<tr><td>${esc(name)}${newOrGoneBadge(v)}</td>` +
             `<td>${fmtMoney(v.fy25)}</td><td>${fmtMoney(v.fy26)}</td>${changeCells(v)}</tr>`
-        ).join('');
+        );
+
+    // Only when a year actually falls short; hasAmount ignores the zero and
+    // null years, so a fully reconciled department gains no extra row.
+    const rest = orgResidual(orgs, totals);
+    if (hasAmount(rest)) {
+        rows.push('<tr class="org-residual"><td>Not attributed to an organization</td>' +
+            `<td>${fmtMoney(rest.fy25)}</td><td>${fmtMoney(rest.fy26)}</td>${changeCells(rest)}</tr>`);
+    }
+    return rows.join('');
 }
 
 let deptTopChart = null;
@@ -1385,7 +1420,7 @@ function openDeptDetail(name) {
     if (earns) meta.push(`FY2026 revenue ${fmtMoney(d.revenueTotals.fy26)} (FY2025 ${fmtMoney(d.revenueTotals.fy25)})`);
     document.getElementById('deptModalMeta').textContent = meta.join(' · ');
 
-    const orgHtml = d.orgs ? orgRows(d.orgs) : '';
+    const orgHtml = d.orgs ? orgRows(d.orgs, d.totals) : '';
     document.getElementById('deptOrgBody').innerHTML = orgHtml;
     document.getElementById('deptOrgHead').hidden = !orgHtml;
     document.getElementById('deptOrgTable').hidden = !orgHtml;
