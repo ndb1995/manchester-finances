@@ -763,9 +763,11 @@ function createTrendChart(view) {
                         boxWidth: 14,
                         padding: 12,
                         font: { size: 11 },
-                        filter: function(item, chart) {
+                        // Chart.js 4 signature is filter(legendItem, chartData) — the
+                        // second arg is chart.data, not the chart.
+                        filter: function(item) {
                             // Show only first 6 in legend for readability
-                            return chart.data.datasets.indexOf(item.dataset) < 6;
+                            return item.datasetIndex < 6;
                         }
                     }
                 },
