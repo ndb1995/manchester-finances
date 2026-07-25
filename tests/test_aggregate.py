@@ -29,8 +29,27 @@ def test_validate_book_fy25_passes():
 
 
 def test_both_books_parse_without_structural_warnings():
+    # covers the self-consistency check too: every agency bucket the book prints a total for
+    # must match that total, so a clean book yields no warnings at all
     assert parsed(FY26)["warnings"] == []
     assert parsed(FY25)["warnings"] == []
+
+def test_agency_bucket_is_supplemented_from_organization_detail():
+    # FY2026 Aviation: objects 0740 (13,200) and 0745 (357,248) are itemized only on the
+    # 'by Organization' pages -- they are absent from the agency pages' text layer entirely --
+    # so the agency bucket falls 370,448 short of the 42,884,197 the book prints for it.
+    av = parsed(FY26)["agencies"]["Aviation"]
+    assert sum(av["expenses"].values()) == 42_884_197
+    codes = {code for code, _ in av["expenses"]}
+    assert {"0740", "0745"} <= codes
+
+def test_total_warnings_flag_a_bucket_that_misses_its_printed_total():
+    agencies = {"Made Up": {"expenses": {("0110", "Regular Salary"): 100}, "revenues": {}}}
+    assert eb._total_warnings(agencies, {("Made Up", "expense"): 100}) == []
+    assert eb._total_warnings(agencies, {("Made Up", "revenue"): 50}) == []  # empty bucket
+    warnings = eb._total_warnings(agencies, {("Made Up", "expense"): 150})
+    assert len(warnings) == 1
+    assert "Made Up" in warnings[0] and "150" in warnings[0] and "100" in warnings[0]
 
 def test_general_fund_totals_hit_the_anchors_exactly():
     for pdf, fy in [(FY26, "FY2026"), (FY25, "FY2025")]:

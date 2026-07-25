@@ -117,6 +117,11 @@ def _match_org(label, orgs):
             return name
     return None
 
+def _same_entity(label, name):
+    """True when a printed total's label names the agency, e.g. 'Public Works Department'."""
+    x, y = _norm(label), _norm(name)
+    return bool(x and y and (x.startswith(y) or y.startswith(x)))
+
 def _dept_lines(text):
     """Grouping lines the book stamps on a sub-unit's page, e.g. 'Public Works' on the
     Facilities Division pages or 'Health Department - City' on the Senior Services page.
@@ -159,7 +164,7 @@ def parse_book(pdf_path):
             known[(m["fund_code"], _norm(m["agency_name"]))] = name
             known[(m["fund_code"], _norm(name))] = name
 
-    agencies, detail, warnings = {}, {}, []
+    agencies, detail, printed, warnings = {}, {}, {}, []
     for text, meta in zip(texts, metas):
         if not meta:
             continue  # summary/TOC/cover page
@@ -181,14 +186,21 @@ def parse_book(pdf_path):
         if parent is None and meta["agency_code"] and not a["code"]:
             a["code"] = meta["agency_code"]
         sections = parse_sections(text)
-        for sec in sections:  # printed totals are diagnostics, roll-ups included
-            if sec["total"] is not None and sec["total_label"]:
-                # keyed by kind too: an agency's expense and revenue totals share one label
-                a["printed_totals"][(meta["kind"], sec["total_label"])] = sec["total"]
-        sections = [s for s in sections if s["items"]]  # drop grand-total-only pseudo sections
         # A page restating the agency total (its own 'by Organization' detail, or any page
         # belonging to a parent department) must not be added to the agency bucket again.
         is_detail = bool(parent) or meta["by_org"]
+        for sec in sections:  # printed totals are diagnostics, roll-ups included
+            if sec["total"] is None or not sec["total_label"]:
+                continue
+            # keyed by kind too: an agency's expense and revenue totals share one label
+            a["printed_totals"][(meta["kind"], sec["total_label"])] = sec["total"]
+            # the department's own total: printed on its agency-level pages, and repeated as
+            # an item-less roll-up at the end of its detail. Organization totals sit on
+            # detail pages and carry items, so they cannot be mistaken for it.
+            if (not is_detail or not sec["items"]) and _same_entity(sec["total_label"], key):
+                pk = (key, meta["kind"])
+                printed[pk] = max(printed.get(pk, 0), sec["total"])
+        sections = [s for s in sections if s["items"]]  # drop grand-total-only pseudo sections
         bucket = detail.setdefault((key, meta["kind"]), {}) if is_detail else (
             a["expenses"] if meta["kind"] == "expense" else a["revenues"])
         orgs = _page_orgs(sections, meta, name if parent else None)
@@ -200,11 +212,39 @@ def parse_book(pdf_path):
                     a["org_expenses"].setdefault(org, {})
                     a["org_expenses"][org][k] = a["org_expenses"][org].get(k, 0) + amt
 
-    for (key, kind), items in detail.items():  # departments printed only as detail
+    for (key, kind), items in detail.items():
         bucket = agencies[key]["expenses"] if kind == "expense" else agencies[key]["revenues"]
-        if not bucket:
+        if not bucket:  # department printed only as detail
             bucket.update(items)
+            continue
+        # FY2026 Aviation itemizes objects 0740 'Equipment' and 0745 'Computer Software
+        # Services' on its organization pages only -- they are absent from the agency pages'
+        # text layer -- leaving the bucket 370,448 short of the total the book prints. An item
+        # whose object code AND description are both new to the bucket cannot be a
+        # restatement, so take it from the detail. The description half of that test matters:
+        # the book files the same line under different codes in its two views (Aviation
+        # 'Special Salary' is 0142 by agency but 0140 by organization, EPD FY2025 'Severance
+        # Pay' is 0142 by agency but 0141 by organization), and those must not be added twice.
+        codes = {code for code, _ in bucket}
+        descs = {desc for _, desc in bucket}
+        for (code, desc), amt in items.items():
+            if code not in codes and desc not in descs:
+                bucket[(code, desc)] = amt
+    warnings += _total_warnings(agencies, printed)
     return {"agencies": agencies, "warnings": warnings}
+
+def _total_warnings(agencies, printed):
+    """Non-fatal check that each bucket matches the total the book prints for its agency.
+
+    Diagnostic only: the printed totals are never treated as anchors, they just have to
+    agree with what was aggregated. This is what would have caught the FY2026 Aviation gap.
+    """
+    out = []
+    for (key, kind), total in sorted(printed.items()):
+        bucket = agencies[key]["expenses"] if kind == "expense" else agencies[key]["revenues"]
+        if bucket and abs(sum(bucket.values()) - total) > 1:
+            out.append(f"{key} {kind} total {sum(bucket.values()):,} != printed {total:,}")
+    return out
 
 def _page_orgs(sections, meta, sub_agency):
     """One organization name per section, or None when the section carries no detail.
