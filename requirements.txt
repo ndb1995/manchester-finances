@@ -1,0 +1,4 @@
+# PDF text extraction (no OCR: the books have a real text layer).
+pypdf
+# Test suite. The tests parse both PDFs for real, so they are slow-ish but not mocked.
+pytest

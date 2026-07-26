@@ -250,6 +250,25 @@ def test_render_data_js_wraps_the_payload_as_an_assignment():
     assert text.startswith("//") and text.rstrip().endswith(";")
     assert "window.BUDGET_DATA = " in text
 
+REGEN = "python extract_budget.py Budget_Book_2025.pdf Budget_Book_2026.pdf"
+
+def _data_js_path():
+    return os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data.js")
+
+def test_committed_data_js_is_a_fresh_render_of_the_books():
+    # Every other test parses the PDFs live, so the parser and the mappings can change while
+    # all of them still pass and the data.js the site actually serves goes stale -- publishing
+    # last week's numbers under this week's code. This is the only test that reads the
+    # committed artifact and compares it with what the current code produces.
+    #
+    # Read with newline translation, not in binary: git's autocrlf checks this file out with
+    # CRLF on Windows, and that is a checkout convention, not a stale payload.
+    with open(_data_js_path(), encoding="utf-8") as fh:
+        committed = fh.read()
+    fresh = eb.render_data_js(built())
+    assert committed == fresh, (
+        "data.js does not match a fresh render of the budget books -- regenerate it: " + REGEN)
+
 def test_committed_data_js_round_trips_through_json():
     # data.js is a checked-in build artifact: the site must work from a fresh clone, so the
     # committed file has to exist and parse. Regenerate it with
