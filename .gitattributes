@@ -1,0 +1,3 @@
+# data.js is a generated artifact compared byte-for-byte by the freshness test.
+# Pin it to LF so regenerating it on Windows does not show as a spurious change.
+data.js text eol=lf
