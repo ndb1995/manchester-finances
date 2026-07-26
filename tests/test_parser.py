@@ -96,8 +96,8 @@ def test_parse_sections_reports_the_lines_it_skips_with_money_on_them():
     assert eb.parse_sections(ORPHAN_AMOUNT) == eb.parse_sections(ORPHAN_AMOUNT, [])
 
 
-# The FY2025 Public Works page as the text layer renders it: a description ending in a digit
-# and, separately, an amount the layer split after a comma. Both must parse exactly.
+# A synthetic shape representing a latent parser failure: a description ending in a digit
+# and, separately, an amount the text layer split after a comma. Both must parse exactly.
 SPACED_AMOUNT_SHAPES = """Object Description Budget
 0898 Special Project 2 218,195
 0110 Regular Salary 33, 826,822

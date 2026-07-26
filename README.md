@@ -77,10 +77,10 @@ elsewhere. The count is printed anyway so a future book cannot start dropping re
 quietly. To read the raw text of any page yourself:
 
 ```
-python extract_budget.py --dump Budget_Book_2026.pdf 5
+python extract_budget.py --dump Budget_Book_2026.pdf 72
 ```
 
-(page numbers are zero-based, as `pypdf` indexes them)
+(The reconciliation report prints page numbers as 1-based; if the report says `p73`, pass `72` to `--dump` since `--dump` takes 0-based indexes.)
 
 ## Layout
 
