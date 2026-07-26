@@ -86,6 +86,36 @@ def test_parse_sections_ignores_orphan_amount_and_split_total():
     secs = eb.parse_sections(ORPHAN_AMOUNT)
     assert secs[0]["items"] == [("0912", "Community Improvement Program", 150000)]
 
+def test_parse_sections_reports_the_lines_it_skips_with_money_on_them():
+    # spec: unparseable lines are collected and reported, never dropped silently. Only lines
+    # carrying an amount are worth reporting -- the orphan '150,000' here, but not the
+    # label-only 'Non-City Programs Total:' or the page footer.
+    dropped = []
+    eb.parse_sections(ORPHAN_AMOUNT, dropped)
+    assert dropped == ["150,000"]
+    assert eb.parse_sections(ORPHAN_AMOUNT) == eb.parse_sections(ORPHAN_AMOUNT, [])
+
+
+# The FY2025 Public Works page as the text layer renders it: a description ending in a digit
+# and, separately, an amount the layer split after a comma. Both must parse exactly.
+SPACED_AMOUNT_SHAPES = """Object Description Budget
+0898 Special Project 2 218,195
+0110 Regular Salary 33, 826,822
+Spaced Section Total: 34,045,017"""
+
+def test_amount_whitespace_is_tolerated_only_after_a_comma():
+    # AMOUNT used to allow whitespace anywhere inside a number, and ITEM_RE's lazy description
+    # prefers the shortest match, so '0898 Special Project 2 218,195' parsed as the description
+    # 'Special Project' for 2,218,195 -- an order of magnitude too much.
+    secs = eb.parse_sections(SPACED_AMOUNT_SHAPES)
+    items = secs[0]["items"]
+    assert ("0898", "Special Project 2", 218195) in items
+    assert not any(desc == "Special Project" for _, desc, _ in items)
+    assert not any(amt == 2218195 for _, _, amt in items)
+    assert ("0110", "Regular Salary", 33826822) in items  # '33, 826,822' still parses
+    assert secs[0]["total"] == 34045017
+    assert sum(a for _, _, a in items) == 34045017
+
 
 # FY2026 p15 (revenue, parenthesized negatives)
 CITY_CLERK_NEGATIVES = """Object Description Budget

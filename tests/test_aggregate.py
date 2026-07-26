@@ -54,10 +54,58 @@ def test_agency_bucket_is_supplemented_from_organization_detail():
 def test_total_warnings_flag_a_bucket_that_misses_its_printed_total():
     agencies = {"Made Up": {"expenses": {("0110", "Regular Salary"): 100}, "revenues": {}}}
     assert eb._total_warnings(agencies, {("Made Up", "expense"): 100}) == []
-    assert eb._total_warnings(agencies, {("Made Up", "revenue"): 50}) == []  # empty bucket
+    assert eb._total_warnings(agencies, {("Made Up", "revenue"): 0}) == []
     warnings = eb._total_warnings(agencies, {("Made Up", "expense"): 150})
     assert len(warnings) == 1
     assert "Made Up" in warnings[0] and "150" in warnings[0] and "100" in warnings[0]
+
+def test_an_empty_bucket_against_a_nonzero_printed_total_warns():
+    # a whole side of a department's ledger going missing is the loudest failure the check can
+    # see, so it must not be the one case the check waves through
+    agencies = {"Made Up": {"expenses": {("0110", "Regular Salary"): 100}, "revenues": {}}}
+    warnings = eb._total_warnings(agencies, {("Made Up", "revenue"): 50})
+    assert len(warnings) == 1
+    assert "Made Up revenue" in warnings[0] and "0" in warnings[0] and "50" in warnings[0]
+
+def test_unparsed_money_lines_are_reported_not_dropped_silently():
+    # Spec requirement: unparseable lines are collected and printed in the reconciliation
+    # report, never dropped silently. Every line these two books drop is a section total in a
+    # form the parser deliberately does not accept as an item (a colon-only organization total
+    # like 'Aviation-Marketing: 1,805,580', or an orphan amount the text layer left behind), so
+    # none is item-shaped and no money is lost. The counts are pinned so a future book cannot
+    # start dropping real line items quietly.
+    for pdf, expected in ((FY25, 14), (FY26, 13)):
+        dropped = parsed(pdf)["dropped_lines"]
+        assert len(dropped) == expected, [ln for _, ln in dropped]
+        assert all(eb.MONEY_LINE_RE.search(ln) for _, ln in dropped)
+        assert [ln for _, ln in dropped if eb.ITEM_START_RE.match(ln)] == []
+        assert all(isinstance(p, int) and p > 0 for p, _ in dropped)  # page numbers, for audit
+
+def test_every_agency_bucket_is_cross_checked_against_a_printed_total():
+    # the printed-total check is only worth what it covers: a bucket the book states no
+    # subtotal for is constrained by the general fund anchors at best, and for an enterprise
+    # fund by nothing at all
+    for pdf in (FY26, FY25):
+        checked, unchecked = eb.anchor_coverage(parsed(pdf))
+        assert unchecked == [], unchecked
+        assert len(checked) >= 40
+
+def test_alias_map_anchors_the_totals_the_name_match_cannot_reach():
+    # three agencies the book foots under a label that is not the name the aggregation keys on.
+    # 'Various' (airport revenue) is fund 0805, so before this it was checked by nothing --
+    # not even indirectly by the general fund anchors.
+    cases = {FY26: {("Planning & Community Development", "expense"): 2_682_014,
+                    ("Planning & Community Development", "revenue"): 5_531_176,
+                    ("Various", "revenue"): 43_951_550,
+                    ("Non-Departmental Items", "expense"): 76_452_422},
+             FY25: {("Planning & Community Development", "expense"): 2_548_264,
+                    ("Planning & Community Development", "revenue"): 3_481_400,
+                    ("Various", "revenue"): 42_267_600,
+                    ("Non-Departmental Items", "expense"): 72_978_914}}
+    for pdf, want in cases.items():
+        printed = parsed(pdf)["printed"]
+        for k, v in want.items():
+            assert printed.get(k) == v, (pdf, k, printed.get(k))
 
 def test_general_fund_totals_hit_the_anchors_exactly():
     for pdf, fy in [(FY26, "FY2026"), (FY25, "FY2025")]:

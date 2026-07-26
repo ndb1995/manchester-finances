@@ -6,7 +6,11 @@ import pypdf
 from category_map import (AGENCY_CATEGORY, EXPECTED, EXPECTED_CATEGORIES, NONDEPT_OBJECT_CATEGORY,
                           PW_ORG_CATEGORY, TRANSIT_OBJECT, UNATTRIBUTED, revenue_group)
 
-AMOUNT = r"[\d][\d,\s]*(?:\.\d+)?"
+# Whitespace inside a number is tolerated only directly after a comma: the text layer
+# sometimes emits '33, 826,822'. Allowing it anywhere let ITEM_RE's lazy description group
+# stop at the first opportunity, so '0898 Special Project 2 218,195' parsed as the
+# description 'Special Project' with the amount 2,218,195 -- off by an order of magnitude.
+AMOUNT = r"\d+(?:,\s?\d+)*(?:\.\d+)?"
 ANY_AMOUNT = rf"(?:\({AMOUNT}\)|{AMOUNT})"  # the book prints negatives in parentheses
 # Object codes are 4 digits, but the text layer sometimes drops the leading zero.
 ITEM_RE = re.compile(rf"^(\d{{3,4}})\s+(.+?)\s+({ANY_AMOUNT})\$?\s*$")
@@ -21,6 +25,10 @@ STRUCT_RE = re.compile(r"^(Fund:|Agency:|Organization:|FY\s*\d{4}\b)")
 JUNK_PREFIX_RE = re.compile(r"^[;:]+(?=\d{3,4}\s)")  # text-layer artifact: ';0460 Safety 1,080'
 HEADER = "Object Description Budget"
 DEPT_LINE_RE = re.compile(r"^[A-Za-z][A-Za-z&,.'/-]*(?: [A-Za-z&,.'/-]+)*$")  # 'Public Works'
+# A line the parser could not turn into an item or a total is only worth reporting when it
+# carries money -- a comma-grouped figure or a parenthesized negative. Page numbers, headers
+# and prose are noise; a dropped amount is the one thing that could cost a dollar.
+MONEY_LINE_RE = re.compile(rf"\d(?:,\s?\d{{3}})+|\({AMOUNT}\)")
 
 def parse_amount(s):
     """'844,355' -> 844355; '(160,000)' -> -160000; '352,121.00' -> 352121 (nearest dollar)."""
@@ -71,7 +79,15 @@ def _rejoin_wrapped(lines):
         i += 1
     return out
 
-def parse_sections(text):
+def parse_sections(text, dropped=None):
+    """Sections on one page. `dropped`, when given, collects every skipped line carrying money.
+
+    Nothing is dropped silently: the caller passes a list and the reconciliation report prints
+    what landed in it. Today every such line is a section total in a form the parser
+    deliberately does not accept (a colon-only 'Aviation-Marketing: 1,805,580', or an orphan
+    amount left behind by the text layer), so no line item is lost -- but that is a fact about
+    these two books, not a guarantee about the next one.
+    """
     sections, cur = [], {"items": [], "total_label": None, "total": None}
     lines = [JUNK_PREFIX_RE.sub("", ln) for ln in (raw.strip() for raw in text.splitlines()) if ln]
     for line in _rejoin_wrapped(lines):
@@ -92,7 +108,10 @@ def parse_sections(text):
             sections.append(cur)
             cur = {"items": [], "total_label": None, "total": None}
             continue
-        # anything else: footers, page numbers, orphan amounts, wrapped labels -> skip
+        # anything else: footers, page numbers, orphan amounts, wrapped labels -> skip,
+        # but report it when it carries an amount
+        if dropped is not None and MONEY_LINE_RE.search(line):
+            dropped.append(line)
     if cur["items"]:
         sections.append(cur)
     return sections
@@ -164,8 +183,8 @@ def parse_book(pdf_path):
             known[(m["fund_code"], _norm(m["agency_name"]))] = name
             known[(m["fund_code"], _norm(name))] = name
 
-    agencies, detail, printed, warnings = {}, {}, {}, []
-    for text, meta in zip(texts, metas):
+    agencies, detail, printed, warnings, dropped = {}, {}, {}, [], []
+    for page_no, (text, meta) in enumerate(zip(texts, metas), 1):
         if not meta:
             continue  # summary/TOC/cover page
         fund, depts = meta["fund_code"], _dept_lines(text)
@@ -185,7 +204,9 @@ def parse_book(pdf_path):
             warnings.append(f"agency {key!r} appears in funds {a['fund_code']} and {fund}")
         if parent is None and meta["agency_code"] and not a["code"]:
             a["code"] = meta["agency_code"]
-        sections = parse_sections(text)
+        page_dropped = []
+        sections = parse_sections(text, page_dropped)
+        dropped += [(page_no, ln) for ln in page_dropped]
         # A page restating the agency total (its own 'by Organization' detail, or any page
         # belonging to a parent department) must not be added to the agency bucket again.
         is_detail = bool(parent) or meta["by_org"]
@@ -230,21 +251,71 @@ def parse_book(pdf_path):
         for (code, desc), amt in items.items():
             if code not in codes and desc not in descs:
                 bucket[(code, desc)] = amt
+    printed.update(_alias_anchors(agencies, printed))
     warnings += _total_warnings(agencies, printed)
-    return {"agencies": agencies, "warnings": warnings}
+    return {"agencies": agencies, "warnings": warnings, "printed": printed,
+            "dropped_lines": dropped}
+
+# Agencies whose grand total the book prints under a label that is not the agency's own name,
+# so the strict name match above never pairs the two and the bucket goes unchecked. Listed
+# one by one on purpose: loosening `_same_entity` to reach them would also pair labels that
+# merely resemble each other, which is how a wrong total gets accepted as a right one.
+PRINTED_TOTAL_ALIAS = {
+    "Planning & Community Development": "Planning Department",  # 'Planning Department Total:'
+    # airport revenue: the books file it under the agency name 'Various' but foot the page
+    # 'Aviation Total:'
+    "Various": "Aviation",
+    # the roll-up 'Non-Departmental Items Total:' names the agency exactly, but it sits in a
+    # section that carries items on a 'by Organization' page, so the guard above skips it
+    "Non-Departmental Items": "Non-Departmental Items",
+}
+
+def _alias_anchors(agencies, printed):
+    """Printed grand totals the name match cannot reach, keyed the way `printed` is.
+
+    Only fills gaps: an agency the name match already anchored keeps that anchor.
+    """
+    out = {}
+    for key, label in PRINTED_TOTAL_ALIAS.items():
+        a = agencies.get(key)
+        if not a:
+            continue
+        for kind in ("expense", "revenue"):
+            if (key, kind) not in printed and (kind, label) in a["printed_totals"]:
+                out[(key, kind)] = a["printed_totals"][(kind, label)]
+    return out
 
 def _total_warnings(agencies, printed):
     """Non-fatal check that each bucket matches the total the book prints for its agency.
 
     Diagnostic only: the printed totals are never treated as anchors, they just have to
     agree with what was aggregated. This is what would have caught the FY2026 Aviation gap.
+
+    An empty bucket against a nonzero printed total warns like any other disagreement: it is
+    the loudest possible failure -- a whole department's money missing -- so exempting it
+    would blind the check to exactly the case it exists for.
     """
     out = []
     for (key, kind), total in sorted(printed.items()):
         bucket = agencies[key]["expenses"] if kind == "expense" else agencies[key]["revenues"]
-        if bucket and abs(sum(bucket.values()) - total) > 1:
+        if abs(sum(bucket.values()) - total) > 1:
             out.append(f"{key} {kind} total {sum(bucket.values()):,} != printed {total:,}")
     return out
+
+def anchor_coverage(book):
+    """(checked, unchecked) bucket names, so the report can say what the check really covers.
+
+    A bucket with no printed total is not wrong, it is just unwitnessed: nothing in the book
+    states its subtotal, so only the general fund anchors constrain it -- and for an
+    enterprise fund, nothing does.
+    """
+    checked, unchecked = [], []
+    for key, a in sorted(book["agencies"].items()):
+        for kind, bucket in (("expense", a["expenses"]), ("revenue", a["revenues"])):
+            if not bucket:
+                continue  # a side of the ledger the department does not have
+            (checked if (key, kind) in book["printed"] else unchecked).append(f"{key} {kind}")
+    return checked, unchecked
 
 def _page_orgs(sections, meta, sub_agency):
     """One organization name per section, or None when the section carries no detail.
@@ -464,6 +535,22 @@ def _report(books, data, failures):
         print(f"  revenue groups         {len(groups):>15,}   summing {sum(groups.values()):,}")
         print(f"  MSD total (constant)   {exp['msd_total']:>15,}"
               f"   of which property tax {exp['msd_property_tax']:,}")
+        checked, unchecked = anchor_coverage(book)
+        print(f"  printed-total checks   {len(checked):>15,} / {len(checked) + len(unchecked)}"
+              f"   agency buckets cross-checked against the book's own subtotal")
+        if unchecked:  # not an error: the book simply never states these subtotals
+            print(f"    no printed total, so unwitnessed: {', '.join(unchecked)}")
+        # Spec: unparseable lines are reported, never dropped silently. Informational -- every
+        # one of them today is a section total in a form the parser does not accept as an item,
+        # so the money is already counted. An item-shaped one would be a genuine loss.
+        dropped = book["dropped_lines"]
+        item_shaped = [f"p{p} {ln}" for p, ln in dropped if ITEM_START_RE.match(ln)]
+        print(f"  unparsed money lines   {len(dropped):>15,}"
+              f"   informational; {len(item_shaped)} item-shaped (a nonzero count loses money)")
+        if item_shaped:  # a line that opens with an object code is a line item, not a subtotal
+            print(f"    ITEM-SHAPED, so money may be missing: {'; '.join(item_shaped)}")
+        for page_no, line in dropped:
+            print(f"    p{page_no:<4} {line}")
     gf_depts = [d for d in data["departments"] if d["fund"] == "0101"]
     print(f"departments emitted      {len(data['departments']):>15,}"
           f"   ({len(gf_depts)} general fund, {len(data['departments']) - len(gf_depts)} enterprise)")
