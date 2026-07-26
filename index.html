@@ -458,11 +458,13 @@
         <div class="chart-grid single">
             <div class="chart-card full-width">
                 <h3><span class="icon">🌊</span> Revenue Sources &rarr; Funds &rarr; Categories &rarr; Departments</h3>
-                <p class="subtitle" style="font-size: 0.95rem; margin-bottom: 18px;">Every dollar of the city budget: revenue sources &rarr; funds &rarr; spending categories &rarr; departments. Hover a band for amounts; click a department for line items.</p>
+                <p class="subtitle" style="font-size: 0.95rem; margin-bottom: 18px;">Every dollar of the city budget: revenue sources &rarr; funds &rarr; spending categories &rarr; departments. Hover a band for amounts; click a department for line items.<br>
+                    <em>On the revenue side, comparing a group between years is not strictly like-for-like: the two budget books itemize some revenue differently (FY2025 lists recreation revenue that FY2026 does not), so a group can shift because the book changed how it lists a source rather than because the money changed. The spending categories on the right are anchored to the totals the books themselves print and are directly comparable.</em></p>
                 <div class="chart-wrap" style="height: 640px;">
                     <canvas id="sankeyChart"></canvas>
                 </div>
-                <p class="subtitle" style="font-size: 0.95rem; margin-top: 18px;"><strong>Every department</strong> &mdash; click for FY2025 vs FY2026 line items (General Fund by FY2026 budget, then enterprise funds).</p>
+                <p class="subtitle" style="font-size: 0.95rem; margin-top: 18px;"><strong>Every department</strong> &mdash; click for FY2025 vs FY2026 line items (General Fund by FY2026 budget, then enterprise funds).<br>
+                    <em>Adding up the General Fund departments below gives $198,511,099 for FY2026, $1,999,838 more than the $196,511,261 General Fund total quoted everywhere else on this page. Both figures are the budget book's: it excludes the $1,999,838 transit subsidy from the General Fund total under its own &ldquo;**&rdquo; footnote, while still listing it as a department appropriation.</em></p>
                 <div class="dept-list" id="deptList"></div>
             </div>
         </div>
@@ -680,11 +682,34 @@ const LEGACY_FY = {
 // back to the legacy figures and the money-flow section shows a notice.
 const HAVE_DATA = typeof window.BUDGET_DATA === 'object' && window.BUDGET_DATA;
 
+// HAVE_DATA only says the payload is an object; the readers below index into nested
+// keys. data.js is generated, so a future rename or removal of a key would throw at
+// top level and halt this whole script — taking the legacy FY2023–FY2026 charts down
+// with it, which is exactly the failure the Chart.js 4 legend bug already caused here.
+// A structural mismatch is therefore reported loudly and then treated like a missing
+// data.js: the reader falls back to the published literal.
+function reportStructure(path, err) {
+    console.error(`BUDGET_DATA structure mismatch at ${path} — falling back to the published `
+        + 'figure. Regenerate data.js: '
+        + 'python extract_budget.py Budget_Book_2025.pdf Budget_Book_2026.pdf', err || '');
+}
+
 function catFY(name, y, legacyIdx) {
-    if (!HAVE_DATA) return LEGACY_FY[name][legacyIdx];
-    const v = window.BUDGET_DATA.categories[name][y];
-    if (v !== LEGACY_FY[name][legacyIdx])
-        console.error(`BUDGET_DATA mismatch for ${name} ${y}: ${v} != ${LEGACY_FY[name][legacyIdx]}`);
+    const legacy = LEGACY_FY[name][legacyIdx];
+    if (!HAVE_DATA) return legacy;
+    let v;
+    try {
+        v = window.BUDGET_DATA.categories[name][y];
+    } catch (err) {
+        reportStructure(`categories.${name}.${y}`, err);
+        return legacy;
+    }
+    if (!Number.isFinite(v)) {
+        reportStructure(`categories.${name}.${y} (got ${v})`);
+        return legacy;
+    }
+    if (v !== legacy)
+        console.error(`BUDGET_DATA mismatch for ${name} ${y}: ${v} != ${legacy}`);
     return v;
 }
 
@@ -707,10 +732,21 @@ const budgetData = [
 const LEGACY_TOTALS = { fy25: 413742767, fy26: 434511186 };
 
 function citywideFY(y) {
-    if (!HAVE_DATA) return LEGACY_TOTALS[y];
-    const v = window.BUDGET_DATA.citywide[y];
-    if (v !== LEGACY_TOTALS[y])
-        console.error(`BUDGET_DATA mismatch for citywide ${y}: ${v} != ${LEGACY_TOTALS[y]}`);
+    const legacy = LEGACY_TOTALS[y];
+    if (!HAVE_DATA) return legacy;
+    let v;
+    try {
+        v = window.BUDGET_DATA.citywide[y];
+    } catch (err) {
+        reportStructure(`citywide.${y}`, err);
+        return legacy;
+    }
+    if (!Number.isFinite(v)) {
+        reportStructure(`citywide.${y} (got ${v})`);
+        return legacy;
+    }
+    if (v !== legacy)
+        console.error(`BUDGET_DATA mismatch for citywide ${y}: ${v} != ${legacy}`);
     return v;
 }
 
@@ -730,16 +766,28 @@ const generalFund = {
     fy26: 196511261,
 };
 
-// The extraction pins the General Fund total twice over — citywide minus the
-// school district, and property tax plus non-tax revenue — so the literals
-// above are still verifiable even though nothing reads them from the payload.
+// Two statements about the literals above, and they are not equally strong.
+//
+// Arm 1, citywide − Education (MSD), is an algebraic identity over the constants
+// the extractor emits (citywide is defined as General Fund + MSD, and the MSD band
+// is the same constant), so it proves only that data.js has not been hand-edited.
+//
+// Arm 2, property tax + the revenue groups, is a real derivation: the revenue
+// groups are summed from the books' own line items, so it fails whenever a parse
+// or grouping change stops reproducing the General Fund total.
 function checkGeneralFund() {
     if (!HAVE_DATA) return;
     const B = window.BUDGET_DATA;
     for (const y of ['fy25', 'fy26']) {
-        const netOfSchools = B.citywide[y] - B.categories['Education (MSD)'][y];
-        const taxPlusRevenue = B.propertyTax.gf[y]
-            + Object.values(B.revenueGroups).reduce((s, v) => s + v[y], 0);
+        let netOfSchools, taxPlusRevenue;
+        try {
+            netOfSchools = B.citywide[y] - B.categories['Education (MSD)'][y];
+            taxPlusRevenue = B.propertyTax.gf[y]
+                + Object.values(B.revenueGroups).reduce((s, v) => s + v[y], 0);
+        } catch (err) {
+            reportStructure(`the General Fund cross-check for ${y}`, err);
+            return;
+        }
         if (netOfSchools !== generalFund[y] || taxPlusRevenue !== generalFund[y])
             console.error(`BUDGET_DATA mismatch for General Fund ${y}: `
                 + `${netOfSchools} (citywide - schools) / ${taxPlusRevenue} (tax + revenue) != ${generalFund[y]}`);
@@ -1365,9 +1413,11 @@ function sankeyFlows(y) {
     }
 
     // Stage 3: categories → departments (General Fund only).
-    // Departments whose category is 'Other' or 'Mixed (see line items)'
-    // (Non-Departmental Items, Public Works) are left off this stage; their
-    // category bands still carry the full amount.
+    // The two departments the extractor splits internally — Public Works and
+    // Non-Departmental Items — carry 'Mixed (see line items)' rather than any one
+    // category, so they are left off this stage; their money still reaches the
+    // category bands above, just not a department band. 'Other' is kept in the
+    // test as a guard only: no department carries it now.
     for (const d of D.departments) {
         if (d.fund !== '0101' || !d.totals[y]) continue;
         if (d.category && d.category !== 'Mixed (see line items)' && d.category !== 'Other') {

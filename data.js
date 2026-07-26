@@ -3517,7 +3517,7 @@ window.BUDGET_DATA = {
    "bookName": "Non-Departmental Items",
    "code": null,
    "fund": "0101",
-   "category": "Other",
+   "category": "Mixed (see line items)",
    "expenses": [
     {
      "code": "0141",

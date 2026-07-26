@@ -441,17 +441,19 @@ def _department_category(name, fund):
 
     Enterprise funds are their own band: they are separately funded and outside the tax-supported
     total. Within the general fund, Non-Departmental Items and Public Works are the two
-    departments `categorize` splits internally, so they get labels the site can show instead of a
-    single category. Anything else unmapped is a failure, not a default -- a renamed department
-    would otherwise reach the flow diagram with a null category and silently disappear.
+    departments `categorize` splits internally, so both get the label that says so rather than a
+    single category. Naming one of Non-Departmental Items' four categories would be a
+    misstatement on a transparency site: its 76,452,422 is split across Retirement, Health,
+    Dental & Insurance, Debt Service and Other, and the smallest of those, 'Other', is the
+    11,050,579 band the site draws next to it. Anything else unmapped is a failure, not a
+    default -- a renamed department would otherwise reach the flow diagram with a null category
+    and silently disappear.
     """
     if fund != "0101":
         return "Enterprise Funds"
     if name in AGENCY_CATEGORY:
         return AGENCY_CATEGORY[name]
-    if "Non-Departmental" in name:
-        return "Other"
-    if name == "Public Works":
+    if "Non-Departmental" in name or name == "Public Works":
         return "Mixed (see line items)"
     raise SystemExit(f"Department not mapped to a category: {name!r}")
 
