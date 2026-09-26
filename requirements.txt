@@ -1,4 +1,6 @@
-# PDF text extraction (no OCR: the books have a real text layer).
-pypdf
+# PDF text extraction (no OCR: the books have a real text layer). Pinned exactly: every regex
+# in budget/parse.py is tuned to the text this version emits, so an upgrade is a deliberate
+# change -- bump it, run `python -m budget`, and review the reconciliation report.
+pypdf==6.14.2
 # Test suite. The tests parse both PDFs for real, so they are slow-ish but not mocked.
-pytest
+pytest>=8,<10

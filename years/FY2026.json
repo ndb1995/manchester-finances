@@ -1,0 +1,25 @@
+{
+  "_comment": "Extracted from the budget book. Every anchor and category total is a figure the city publishes; the extraction must reproduce each to the dollar or data.js is not written.",
+  "label": "FY2026",
+  "period": "Jul 2025 – Jun 2026",
+  "source": "sources/Budget_Book_2026.pdf",
+  "as_of": "August 2025",
+  "anchors": {
+    "gf_total": 196511261,
+    "gf_revenue": 66487051,
+    "msd_total": 237999925,
+    "msd_property_tax": 117531711
+  },
+  "categories": {
+    "Public Safety": 61551254,
+    "Retirement": 29706516,
+    "General Government": 26788383,
+    "Highway & Streets": 21545314,
+    "Health, Dental & Insurance": 17595489,
+    "Debt Service": 16100000,
+    "Other": 11050579,
+    "Culture & Recreation": 7764641,
+    "Health & Welfare": 4104665,
+    "Economic Development": 304420
+  }
+}

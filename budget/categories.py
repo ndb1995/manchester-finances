@@ -1,39 +1,18 @@
-"""Mappings and expected values for Manchester NH budget extraction."""
+"""How the budget books' departments and revenue lines map onto the site's categories.
+
+Everything here is a rule about names and codes the books print. The dollar figures those
+rules have to reproduce live in `years/*.json`, not here.
+"""
 import re
 
-EXPECTED = {
-    "FY2025": {"gf_total": 185_760_157, "gf_revenue": 64_074_762,
-               "msd_total": 227_982_610, "msd_property_tax": 120_439_237},
-    "FY2026": {"gf_total": 196_511_261, "gf_revenue": 66_487_051,
-               "msd_total": 237_999_925, "msd_property_tax": 117_531_711},
-}
-TRANSIT_OBJECT = "0909"  # excluded from GF totals per the book's own footnote
-
-# Organization label the parser stamps on a detail section whose printed total was split
-# across lines, leaving it without one. Lives here because both the parser that emits it and
-# the mapping below that has to recognize it need the same literal.
-UNATTRIBUTED = "(unattributed)"
-
-# The category totals the current site publishes. These are anchors, not estimates: the
-# extraction has to reproduce every one of them to the dollar or the mapping is wrong.
-EXPECTED_CATEGORIES = {
-    "FY2025": {"Public Safety": 57_760_666, "Retirement": 27_291_207,
-               "General Government": 25_559_290, "Highway & Streets": 19_968_652,
-               "Health, Dental & Insurance": 17_195_489, "Debt Service": 16_100_000,
-               "Other": 10_734_674, "Culture & Recreation": 7_618_111,
-               "Health & Welfare": 3_308_180, "Economic Development": 223_888},
-    "FY2026": {"Public Safety": 61_551_254, "Retirement": 29_706_516,
-               "General Government": 26_788_383, "Highway & Streets": 21_545_314,
-               "Health, Dental & Insurance": 17_595_489, "Debt Service": 16_100_000,
-               "Other": 11_050_579, "Culture & Recreation": 7_764_641,
-               "Health & Welfare": 4_104_665, "Economic Development": 304_420},
-}
+from .errors import BudgetError
+from .model import UNATTRIBUTED
 
 # Keys are the agency names `parse_book` produces -- i.e. the names printed on the book's
 # detail-page footers, which differ from the summary pages' ('Human Resources Department',
-# not 'Human Resources'). An agency missing from here is a hard error, not a default, so a
-# renamed or new department shows up as a failure instead of a silently dropped budget.
-# 'Housing Stability' appears in FY2025 only; every other key is in both books.
+# not 'Human Resources'). An agency missing from here and from `SPLIT_RULES` is a hard error,
+# not a default, so a renamed or new department shows up as a failure instead of a silently
+# dropped budget. 'Housing Stability' appears in FY2025 only; every other key is in both books.
 AGENCY_CATEGORY = {
     "Aldermen": "General Government",
     "Board of Assessors": "General Government",
@@ -56,7 +35,8 @@ AGENCY_CATEGORY = {
     "Manchester Economic Development Office": "Economic Development",
 }
 
-def NONDEPT_OBJECT_CATEGORY(code, desc):
+
+def nondepartmental_object_category(code, desc):
     """Split the Non-Departmental Items department by object code.
 
     It is a single agency holding the city-wide costs no department carries, so the object
@@ -72,7 +52,8 @@ def NONDEPT_OBJECT_CATEGORY(code, desc):
         return "Debt Service"
     return "Other"
 
-def PW_ORG_CATEGORY(org_name):
+
+def public_works_org_category(org_name):
     """Split Public Works, the one department feeding three categories.
 
     The book names every PW organization with a division prefix ('Highway-Administration',
@@ -90,7 +71,38 @@ def PW_ORG_CATEGORY(org_name):
         return "General Government"
     if n.startswith(("park", "cemeter")):
         return "Culture & Recreation"
-    raise SystemExit(f"Public Works organization not mapped to a category: {org_name!r}")
+    raise BudgetError(f"Public Works organization not mapped to a category: {org_name!r}")
+
+
+def split_by_object(rule):
+    """A split that files each of the agency's line items by `rule(code, desc)`."""
+    def split(agency):
+        for key, amt in agency.expenses.items():
+            yield rule(*key), key, amt
+    return split
+
+
+def split_by_organization(rule):
+    """A split that files each organization's line items by `rule(org_name)`.
+
+    Uses the `org_expenses` breakdown instead of the flat bucket; the two are equal by
+    construction, which the aggregation tests check.
+    """
+    def split(agency):
+        for org, items in agency.org_expenses.items():
+            category = rule(org)
+            for key, amt in items.items():
+                yield category, key, amt
+    return split
+
+
+# The departments that feed more than one category, and how each one is divided. Each rule
+# yields (category, item key, amount). Both the categorization and the per-department label
+# consult this one table, so a department cannot be split in one place and not the other.
+SPLIT_RULES = {
+    "Public Works": split_by_organization(public_works_org_category),
+    "Non-Departmental Items": split_by_object(nondepartmental_object_category),
+}
 
 FEE_WORDS = ("fee", "permit", "license", "rent", "copies", "receipt", "parking",
              "application", "country club", "arena", "aquatic", "drop-off", "admission",
@@ -101,6 +113,7 @@ FEE_WORDS = ("fee", "permit", "license", "rent", "copies", "receipt", "parking",
 # 'ice' must match as a whole word. As a bare substring it also hits 'Service', 'Devices' and
 # 'Police', which would file unrelated lines as fees by coincidence.
 FEE_WORD_RE = re.compile(r"\bice\b")
+
 
 def revenue_group(code, desc):
     """Coarse grouping for the general fund's ~170 revenue lines.

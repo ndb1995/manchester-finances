@@ -1,5 +1,5 @@
 # tests/test_parser.py
-import extract_budget as eb
+from budget import parse
 
 ASSESSORS_EXPENSE = """Object Description Budget
 0110 Regular Salary 844,355         
@@ -44,46 +44,46 @@ FY 2026 Expense Budget by Organization
 68"""
 
 def test_parse_amount_handles_commas_spaces_dollar():
-    assert eb.parse_amount("844,355") == 844355
-    assert eb.parse_amount("33, 826,822") == 33826822
-    assert eb.parse_amount("937,285$") == 937285
+    assert parse.parse_amount("844,355") == 844355
+    assert parse.parse_amount("33, 826,822") == 33826822
+    assert parse.parse_amount("937,285$") == 937285
 
 def test_classify_expense_page():
-    m = eb.classify_page(ASSESSORS_EXPENSE)
+    m = parse.classify_page(ASSESSORS_EXPENSE)
     assert m == {"kind": "expense", "fund_code": "0101", "fund_name": "General Fund",
                  "agency_code": "020", "agency_name": "Board of Assessors",
                  "by_org": False, "orgs": []}
 
 def test_classify_revenue_page_without_agency_code():
-    m = eb.classify_page(PW_REVENUE_CONTINUATION)
+    m = parse.classify_page(PW_REVENUE_CONTINUATION)
     assert m["kind"] == "revenue"
     assert m["agency_code"] is None
     assert m["agency_name"] == "Public Works"
 
 def test_classify_by_org_page_collects_orgs():
-    m = eb.classify_page(NONDEPT_BY_ORG)
+    m = parse.classify_page(NONDEPT_BY_ORG)
     assert m["by_org"] is True
     assert ("140", "Debt Service") in m["orgs"]
     assert ("170", "Non-Departmental") in m["orgs"]
 
 def test_classify_summary_page_returns_none():
-    assert eb.classify_page("010 Aldermen 70,000\nGeneral Fund Total: 196,511,261") is None
+    assert parse.classify_page("010 Aldermen 70,000\nGeneral Fund Total: 196,511,261") is None
 
 def test_parse_sections_single():
-    secs = eb.parse_sections(ASSESSORS_EXPENSE)
+    secs = parse.parse_sections(ASSESSORS_EXPENSE)
     assert len(secs) == 1
     assert secs[0]["items"][0] == ("0110", "Regular Salary", 844355)
     assert secs[0]["total_label"] == "Board of Assessors"
     assert secs[0]["total"] == 937285
 
 def test_parse_sections_multi_org():
-    secs = eb.parse_sections(NONDEPT_BY_ORG)
+    secs = parse.parse_sections(NONDEPT_BY_ORG)
     assert [s["total_label"] for s in secs] == ["Debt service", "Non-Departmental"]
     assert secs[0]["items"] == [("0919", "Maturing Debt", 9700000),
                                 ("0920", "Interest On Maturing Debt", 6400000)]
 
 def test_parse_sections_ignores_orphan_amount_and_split_total():
-    secs = eb.parse_sections(ORPHAN_AMOUNT)
+    secs = parse.parse_sections(ORPHAN_AMOUNT)
     assert secs[0]["items"] == [("0912", "Community Improvement Program", 150000)]
 
 def test_parse_sections_reports_the_lines_it_skips_with_money_on_them():
@@ -91,9 +91,9 @@ def test_parse_sections_reports_the_lines_it_skips_with_money_on_them():
     # carrying an amount are worth reporting -- the orphan '150,000' here, but not the
     # label-only 'Non-City Programs Total:' or the page footer.
     dropped = []
-    eb.parse_sections(ORPHAN_AMOUNT, dropped)
+    parse.parse_sections(ORPHAN_AMOUNT, dropped)
     assert dropped == ["150,000"]
-    assert eb.parse_sections(ORPHAN_AMOUNT) == eb.parse_sections(ORPHAN_AMOUNT, [])
+    assert parse.parse_sections(ORPHAN_AMOUNT) == parse.parse_sections(ORPHAN_AMOUNT, [])
 
 
 # A synthetic shape representing a latent parser failure: a description ending in a digit
@@ -107,7 +107,7 @@ def test_amount_whitespace_is_tolerated_only_after_a_comma():
     # AMOUNT used to allow whitespace anywhere inside a number, and ITEM_RE's lazy description
     # prefers the shortest match, so '0898 Special Project 2 218,195' parsed as the description
     # 'Special Project' for 2,218,195 -- an order of magnitude too much.
-    secs = eb.parse_sections(SPACED_AMOUNT_SHAPES)
+    secs = parse.parse_sections(SPACED_AMOUNT_SHAPES)
     items = secs[0]["items"]
     assert ("0898", "Special Project 2", 218195) in items
     assert not any(desc == "Special Project" for _, desc, _ in items)
@@ -301,16 +301,16 @@ FY 2025 Expense Budget
 27"""
 
 def test_parse_amount_negatives_and_cents():
-    assert eb.parse_amount("(160,000)") == -160000
-    assert eb.parse_amount("(30)") == -30
-    assert eb.parse_amount("352,121.00") == 352121
-    assert eb.parse_amount("2,000.00") == 2000
-    assert eb.parse_amount("(1,172,729.00)") == -1172729
-    assert eb.parse_amount("352,121.49") == 352121
-    assert eb.parse_amount("352,120.51") == 352121
+    assert parse.parse_amount("(160,000)") == -160000
+    assert parse.parse_amount("(30)") == -30
+    assert parse.parse_amount("352,121.00") == 352121
+    assert parse.parse_amount("2,000.00") == 2000
+    assert parse.parse_amount("(1,172,729.00)") == -1172729
+    assert parse.parse_amount("352,121.49") == 352121
+    assert parse.parse_amount("352,120.51") == 352121
 
 def test_parenthesized_amounts_parse_as_negative_items():
-    secs = eb.parse_sections(CITY_CLERK_NEGATIVES)
+    secs = parse.parse_sections(CITY_CLERK_NEGATIVES)
     items = secs[0]["items"]
     assert ("4210", "State Share Certified Record", -160000) in items
     assert ("4697", "Animal Population Control Fee", -22000) in items
@@ -321,7 +321,7 @@ def test_parenthesized_amounts_parse_as_negative_items():
     assert sum(a for _, _, a in items) == 2206790
 
 def test_three_digit_object_codes_are_zero_padded():
-    secs = eb.parse_sections(PARKS_ADMIN_3DIGIT)
+    secs = parse.parse_sections(PARKS_ADMIN_3DIGIT)
     items = secs[0]["items"]
     assert ("0120", "Temporary Salary", 460000) in items
     assert ("0130", "Overtime Salary", 336867) in items
@@ -330,7 +330,7 @@ def test_three_digit_object_codes_are_zero_padded():
     assert sum(a for _, _, a in items) == 3955423
 
 def test_decimal_amounts_round_to_whole_dollars():
-    secs = eb.parse_sections(AVIATION_DECIMALS)
+    secs = parse.parse_sections(AVIATION_DECIMALS)
     items = secs[0]["items"]
     assert ("0211", "Health Insurance", 352121) in items
     assert ("0213", "Life Insurance", 2000) in items
@@ -339,7 +339,7 @@ def test_decimal_amounts_round_to_whole_dollars():
     assert sum(a for _, _, a in items) == 6634226
 
 def test_total_prefix_form_yields_label():
-    secs = eb.parse_sections(INFO_SYSTEMS_ROLLUP)
+    secs = parse.parse_sections(INFO_SYSTEMS_ROLLUP)
     assert secs[0]["total_label"] == "Information Systems-Communication"
     assert secs[0]["total"] == 1081235
     # page roll-up "Total Information Systems: 2,223,386$" -> label without items
@@ -348,7 +348,7 @@ def test_total_prefix_form_yields_label():
     assert secs[-1]["items"] == []
 
 def test_mid_word_wrapped_item_is_rejoined():
-    secs = eb.parse_sections(PW_WRAPPED_ITEM)
+    secs = parse.parse_sections(PW_WRAPPED_ITEM)
     items = secs[0]["items"]
     assert ("0740", "Equipment", 136300) in items
     assert not any(desc == "Equi" for _, desc, _ in items)
@@ -427,14 +427,14 @@ FY 2025 Expense Budget by Organization
 83"""
 
 def test_dash_amount_line_is_skipped_without_eating_the_total():
-    secs = eb.parse_sections(PARKING_DASH_AMOUNT)
+    secs = parse.parse_sections(PARKING_DASH_AMOUNT)
     assert secs[0]["total_label"] == "Parking Enterprise"
     assert secs[0]["total"] == 5068749
     assert not any("Total" in desc for _, desc, _ in secs[0]["items"])
     assert sum(a for _, _, a in secs[0]["items"]) == 5068749
 
 def test_stray_leading_punctuation_before_object_code():
-    secs = eb.parse_sections(AVIATION_STRAY_SEMICOLON)
+    secs = parse.parse_sections(AVIATION_STRAY_SEMICOLON)
     items = secs[0]["items"]
     assert ("0460", "Safety", 1080) in items
     assert secs[0]["total"] == 6477985
@@ -450,9 +450,22 @@ SYNTHETIC_ADJACENT_ITEM_STARTS = """Object Description Budget
 Synthetic Section Total: 5,000"""
 
 def test_rejoin_does_not_merge_adjacent_item_start_lines():
-    secs = eb.parse_sections(SYNTHETIC_ADJACENT_ITEM_STARTS)
+    secs = parse.parse_sections(SYNTHETIC_ADJACENT_ITEM_STARTS)
     items = secs[0]["items"]
     assert items == []
     assert not any(code == "0740" for code, _, _ in items)
     assert secs[0]["total_label"] == "Synthetic Section"
     assert secs[0]["total"] == 5000
+
+
+def test_parse_pages_builds_a_book_from_text_alone():
+    # the page-level entry point needs no PDF, so an aggregation quirk can be pinned with a
+    # few lines of synthetic text instead of a whole budget book
+    book = parse.parse_pages([ASSESSORS_EXPENSE, "Table of Contents\n1"])
+    assessors = book.agencies["Board of Assessors"]
+    assert assessors.code == "020" and assessors.in_general_fund
+    assert book.printed == {("Board of Assessors", "expense"): 937_285}
+    # the excerpt keeps three of the page's lines, so the bucket misses the printed total --
+    # and the book says so rather than trusting either figure
+    assert sum(assessors.expenses.values()) == 918_785
+    assert book.warnings == ["Board of Assessors expense total 918,785 != printed 937,285"]
