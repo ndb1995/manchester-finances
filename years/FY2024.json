@@ -1,0 +1,21 @@
+{
+  "_comment": "Hand-entered: no budget book for this year is in the repository. Carried over from the page's original literals; the loader still checks that the categories add up to the General Fund total.",
+  "label": "FY2024",
+  "period": "Jul 2023 – Jun 2024",
+  "anchors": {
+    "gf_total": 178696166,
+    "msd_total": 191759220
+  },
+  "categories": {
+    "Public Safety": 55605988,
+    "Retirement": 25555116,
+    "General Government": 25011825,
+    "Highway & Streets": 19504209,
+    "Health, Dental & Insurance": 15276990,
+    "Debt Service": 16100000,
+    "Other": 11238353,
+    "Culture & Recreation": 7161121,
+    "Health & Welfare": 3066657,
+    "Economic Development": 175907
+  }
+}

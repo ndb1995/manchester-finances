@@ -3,438 +3,45 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Manchester NH Budget Visualizer - FY2026</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-sankey@0.14.0/dist/chartjs-chart-sankey.min.js"></script>
-    <script src="data.js"></script>
-    <style>
-        /* ===== RESET & BASE ===== */
-        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
-        html { scroll-behavior: smooth; }
-        body {
-            font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
-            background: #f4f6fa;
-            color: #1a1a2e;
-            line-height: 1.6;
-        }
-
-        /* ===== COLOR PALETTE ===== */
-        :root {
-            --navy: #0f1b2d;
-            --navy-light: #1a2d4a;
-            --blue: #1e5a99;
-            --blue-light: #2c7bc0;
-            --teal: #17a2b8;
-            --gold: #d4a746;
-            --green: #28a745;
-            --red: #dc3545;
-            --orange: #fd7e14;
-            --purple: #6f42c1;
-            --gray: #6c757d;
-            --gray-light: #e9ecef;
-            --white: #ffffff;
-            --shadow: 0 4px 24px rgba(0,0,0,0.08);
-            --shadow-lg: 0 8px 40px rgba(0,0,0,0.12);
-            --radius: 16px;
-            --radius-sm: 10px;
-        }
-
-        /* ===== TYPOGRAPHY ===== */
-        h1 { font-size: 2.8rem; font-weight: 700; letter-spacing: -0.02em; }
-        h2 { font-size: 1.8rem; font-weight: 600; margin-bottom: 1.2rem; letter-spacing: -0.01em; }
-        h3 { font-size: 1.2rem; font-weight: 600; }
-        .subtitle { font-size: 1.1rem; opacity: 0.85; }
-
-        /* ===== LAYOUT ===== */
-        .container { max-width: 1280px; margin: 0 auto; padding: 0 24px; }
-
-        /* ===== HERO ===== */
-        .hero {
-            background: linear-gradient(135deg, var(--navy) 0%, var(--navy-light) 50%, var(--blue) 100%);
-            color: var(--white);
-            padding: 60px 0 50px;
-            position: relative;
-            overflow: hidden;
-        }
-        .hero::before {
-            content: '';
-            position: absolute;
-            top: -50%;
-            right: -20%;
-            width: 600px; height: 600px;
-            background: radial-gradient(circle, rgba(23,162,184,0.08) 0%, transparent 70%);
-            border-radius: 50%;
-        }
-        .hero::after {
-            content: '';
-            position: absolute;
-            bottom: -30%;
-            left: -10%;
-            width: 400px; height: 400px;
-            background: radial-gradient(circle, rgba(212,167,70,0.06) 0%, transparent 70%);
-            border-radius: 50%;
-        }
-        .hero .container { position: relative; z-index: 1; }
-        .hero h1 { margin-bottom: 0.5rem; }
-        .hero .meta { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 10px; }
-        .hero .meta span {
-            background: rgba(255,255,255,0.12);
-            backdrop-filter: blur(4px);
-            padding: 6px 16px;
-            border-radius: 20px;
-            font-size: 0.9rem;
-        }
-
-        /* ===== KPI ROW ===== */
-        .kpi-row {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 20px;
-            margin-top: 30px;
-        }
-        .kpi-card {
-            background: rgba(255,255,255,0.08);
-            backdrop-filter: blur(8px);
-            border: 1px solid rgba(255,255,255,0.12);
-            border-radius: var(--radius);
-            padding: 24px 20px;
-            text-align: center;
-            transition: transform 0.2s, background 0.2s;
-        }
-        .kpi-card:hover { transform: translateY(-3px); background: rgba(255,255,255,0.12); }
-        .kpi-card .value {
-            font-size: 2rem;
-            font-weight: 700;
-            letter-spacing: -0.01em;
-        }
-        .kpi-card .label {
-            font-size: 0.85rem;
-            opacity: 0.8;
-            margin-top: 4px;
-            text-transform: uppercase;
-            letter-spacing: 0.04em;
-        }
-        .kpi-card .change {
-            font-size: 0.85rem;
-            margin-top: 6px;
-            font-weight: 600;
-        }
-        .kpi-card .change.up { color: #5dff8c; }
-        .kpi-card .change.down { color: #ff6b6b; }
-
-        /* ===== SECTION ===== */
-        .section {
-            padding: 50px 0;
-        }
-        .section-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            flex-wrap: wrap;
-            gap: 12px;
-            margin-bottom: 24px;
-        }
-        .section-header .actions {
-            display: flex;
-            gap: 8px;
-        }
-        .btn-group {
-            display: flex;
-            gap: 0;
-            background: var(--gray-light);
-            border-radius: 8px;
-            padding: 3px;
-        }
-        .btn-group button {
-            background: none;
-            border: none;
-            padding: 7px 16px;
-            border-radius: 6px;
-            font-size: 0.85rem;
-            font-weight: 500;
-            cursor: pointer;
-            transition: all 0.2s;
-            color: var(--gray);
-        }
-        .btn-group button.active {
-            background: var(--white);
-            color: var(--blue);
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-        }
-        .btn-group button:hover:not(.active) { color: var(--navy); }
-
-        /* ===== CHARTS ===== */
-        .chart-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 28px;
-        }
-        .chart-grid.single { grid-template-columns: 1fr; }
-        .chart-card {
-            background: var(--white);
-            border-radius: var(--radius);
-            box-shadow: var(--shadow);
-            padding: 28px;
-            transition: box-shadow 0.2s;
-        }
-        .chart-card:hover { box-shadow: var(--shadow-lg); }
-        .chart-card.full-width { grid-column: 1 / -1; }
-        .chart-card h3 {
-            margin-bottom: 16px;
-            color: var(--navy);
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        .chart-card h3 .icon { font-size: 1.3rem; }
-        .chart-wrap {
-            position: relative;
-            width: 100%;
-            max-width: 100%;
-        }
-        .chart-wrap canvas { max-width: 100%; }
-
-        /* ===== TABLE ===== */
-        .data-table-wrap {
-            overflow-x: auto;
-            margin-top: 12px;
-        }
-        .data-table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 0.9rem;
-        }
-        .data-table th {
-            background: var(--navy);
-            color: var(--white);
-            padding: 12px 16px;
-            text-align: right;
-            font-weight: 500;
-            white-space: nowrap;
-        }
-        .data-table th:first-child { text-align: left; border-radius: 8px 0 0 0; }
-        .data-table th:last-child { border-radius: 0 8px 0 0; }
-        .data-table td {
-            padding: 10px 16px;
-            text-align: right;
-            border-bottom: 1px solid var(--gray-light);
-            font-variant-numeric: tabular-nums;
-        }
-        .data-table td:first-child {
-            text-align: left;
-            font-weight: 500;
-        }
-        .data-table tr:last-child td { border-bottom: none; }
-        .data-table tr:hover td { background: #f0f4ff; }
-        .data-table .total td {
-            font-weight: 700;
-            border-top: 2px solid var(--navy);
-            background: #f8f9ff;
-        }
-        .data-table .general-fund td {
-            font-weight: 700;
-            color: var(--blue);
-            background: #eef3ff;
-        }
-        .data-table .category-row td:first-child { padding-left: 24px; }
-
-        /* ===== INSIGHT BOX ===== */
-        .insight-box {
-            background: linear-gradient(135deg, #e8f4f8, #f0e6ff);
-            border-left: 4px solid var(--teal);
-            border-radius: var(--radius-sm);
-            padding: 20px 24px;
-            margin: 20px 0;
-        }
-        .insight-box h4 { color: var(--navy); margin-bottom: 6px; font-size: 1rem; }
-        .insight-box p { font-size: 0.95rem; color: #333; }
-
-        /* ===== DEPARTMENT INDEX LIST ===== */
-        .dept-list {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-            margin-top: 14px;
-        }
-        .dept-list button {
-            border: 1px solid var(--gray-light);
-            background: var(--white);
-            color: #1a1a2e;
-            padding: 6px 14px;
-            border-radius: 20px;
-            cursor: pointer;
-            font-family: inherit;
-            font-size: 0.85rem;
-            transition: background 0.2s ease, border-color 0.2s ease;
-        }
-        .dept-list button:hover { background: var(--gray-light); border-color: var(--gray); }
-        .dept-list .dept-list-label {
-            width: 100%;
-            font-size: 0.8rem;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.06em;
-            color: var(--gray);
-            margin-top: 6px;
-        }
-
-        /* ===== DEPARTMENT DRILL-DOWN MODAL ===== */
-        .modal-overlay {
-            position: fixed;
-            inset: 0;
-            background: rgba(15, 27, 45, 0.55);
-            display: flex;
-            align-items: flex-start;
-            justify-content: center;
-            padding: 40px 16px;
-            overflow-y: auto;
-            z-index: 100;
-        }
-        .modal-overlay[hidden] { display: none; }
-        .modal-card {
-            background: var(--white);
-            border-radius: var(--radius);
-            box-shadow: var(--shadow-lg);
-            max-width: 900px;
-            width: 100%;
-            padding: 28px;
-            position: relative;
-        }
-        .modal-card h4 {
-            font-size: 1rem;
-            color: var(--navy);
-            margin-top: 18px;
-        }
-        .modal-close {
-            position: absolute;
-            top: 10px;
-            right: 16px;
-            font-size: 1.8rem;
-            line-height: 1;
-            border: 0;
-            background: none;
-            cursor: pointer;
-            color: var(--gray);
-        }
-        .modal-close:hover { color: var(--navy); }
-        .dept-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin: 8px 0 20px;
-            font-size: 0.92rem;
-        }
-        .dept-table th {
-            padding: 6px 10px;
-            text-align: right;
-            border-bottom: 2px solid var(--navy);
-            white-space: nowrap;
-        }
-        .dept-table td {
-            padding: 6px 10px;
-            text-align: right;
-            border-bottom: 1px solid var(--gray-light);
-            font-variant-numeric: tabular-nums;
-        }
-        .dept-table th:nth-child(2), .dept-table td:nth-child(2) { text-align: left; }
-        .dept-table.name-first th:first-child,
-        .dept-table.name-first td:first-child { text-align: left; }
-        .dept-table tr:hover td { background: #f0f4ff; }
-        .dept-table .up { color: var(--red); }
-        .dept-table .down { color: var(--green); }
-        /* Money the book did not file under a named organization: muted, and it
-           deliberately outranks .up/.down so the gap reads as an attribution
-           artifact rather than a spending trend. */
-        .dept-table .org-residual td { color: var(--gray); font-style: italic; }
-        .badge-new, .badge-gone {
-            font-size: 0.72rem;
-            padding: 1px 7px;
-            border-radius: 9px;
-            margin-left: 6px;
-            white-space: nowrap;
-        }
-        .badge-new { background: var(--teal); color: var(--white); }
-        .badge-gone { background: var(--gray); color: var(--white); }
-        .dept-table-wrap { overflow-x: auto; }
-        /* Caption under the organization table, explaining its two look-alike rows. */
-        .dept-table-note {
-            margin-top: 8px;
-            font-size: 0.85rem;
-            color: var(--gray);
-        }
-
-        /* ===== FOOTER ===== */
-        .footer {
-            background: var(--navy);
-            color: rgba(255,255,255,0.7);
-            text-align: center;
-            padding: 30px 0;
-            font-size: 0.9rem;
-        }
-        .footer a { color: var(--teal); text-decoration: none; }
-        .footer a:hover { text-decoration: underline; }
-
-        /* ===== RESPONSIVE ===== */
-        @media (max-width: 900px) {
-            .chart-grid { grid-template-columns: 1fr; }
-            h1 { font-size: 2rem; }
-            h2 { font-size: 1.4rem; }
-            .kpi-card .value { font-size: 1.5rem; }
-            .hero { padding: 40px 0 30px; }
-            .section { padding: 30px 0; }
-            .chart-card { padding: 20px; }
-            .kpi-row { grid-template-columns: repeat(2, 1fr); }
-        }
-        @media (max-width: 500px) {
-            .kpi-row { grid-template-columns: 1fr; }
-            .hero .meta span { font-size: 0.8rem; padding: 4px 12px; }
-            .section-header { flex-direction: column; align-items: flex-start; }
-        }
-
-        /* ===== LOADING / TOOLTIP UTILITIES ===== */
-        .color-dot {
-            display: inline-block;
-            width: 12px; height: 12px;
-            border-radius: 50%;
-            margin-right: 6px;
-            vertical-align: middle;
-        }
-        .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); }
-    </style>
+    <title>Manchester NH Budget Visualizer</title>
+    <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
+<!--
+    Markup only. Every figure, year label and data-driven sentence is filled in by js/ from
+    data.js, which `python -m budget` generates from years/*.json and the budget books.
+    Elements with data-slot="..." receive a year label (see fillSlots in js/sections.js).
+-->
 
 <!-- ===== HERO ===== -->
 <header class="hero">
     <div class="container">
         <h1>Manchester, NH Budget</h1>
-        <p class="subtitle">Fiscal Year 2026 &mdash; Interactive Visualization</p>
+        <p class="subtitle">Fiscal Year <span data-slot="latestNumber"></span> &mdash; Interactive Visualization</p>
         <div class="meta">
-            <span>📅 FY2026 Budget: Jul 2025 – Jun 2026</span>
+            <span>📅 <span data-slot="latest"></span> Budget: <span data-slot="period"></span></span>
             <span>🏛️ Adopted by Board of Mayor &amp; Aldermen</span>
             <span>📍 Manchester, New Hampshire</span>
         </div>
 
         <div class="kpi-row" id="kpiRow">
-            <!-- Figures are rewritten from the data constants on load; the text
-                 here is the FY2026 budget-book wording the tripwire checks against. -->
             <div class="kpi-card">
-                <div class="value" id="kpiTotal">$434.5M</div>
+                <div class="value" id="kpiTotal">&mdash;</div>
                 <div class="label">Total Budget</div>
-                <div class="change up" id="kpiTotalChange">↑ 5.0% from FY2025</div>
+                <div class="change" id="kpiTotalChange"></div>
             </div>
             <div class="kpi-card">
-                <div class="value" id="kpiGeneralFund">$196.5M</div>
+                <div class="value" id="kpiGeneralFund">&mdash;</div>
                 <div class="label">General Fund</div>
-                <div class="change up" id="kpiGeneralFundChange">↑ 5.8% from FY2025</div>
+                <div class="change" id="kpiGeneralFundChange"></div>
             </div>
             <div class="kpi-card">
-                <div class="value" id="kpiMsd">$238.0M</div>
+                <div class="value" id="kpiMsd">&mdash;</div>
                 <div class="label">School District (MSD)</div>
-                <div class="change up" id="kpiMsdChange">↑ 4.4% from FY2025</div>
+                <div class="change" id="kpiMsdChange"></div>
             </div>
             <div class="kpi-card">
-                <div class="value" id="kpiEducationShare">55%</div>
+                <div class="value" id="kpiEducationShare">&mdash;</div>
                 <div class="label">Education Share</div>
                 <div class="change">of total budget</div>
             </div>
@@ -442,53 +49,52 @@
     </div>
 </header>
 
+<main id="content">
+
 <!-- ===== MONEY FLOW (SANKEY) ===== -->
-<section class="section" style="background: var(--white);" id="flow">
+<section class="section alt" id="flow">
     <div class="container">
         <div class="section-header">
             <h2>💵 Where the Money Comes From &amp; Where It Goes</h2>
             <div class="actions">
-                <div class="btn-group" id="flowYearToggle">
-                    <button data-year="fy25">FY2025</button>
-                    <button class="active" data-year="fy26">FY2026</button>
-                </div>
+                <div class="btn-group" id="flowYearToggle" aria-label="Fiscal year"></div>
             </div>
         </div>
 
         <div class="chart-grid single">
             <div class="chart-card full-width">
                 <h3><span class="icon">🌊</span> Revenue Sources &rarr; Funds &rarr; Categories &rarr; Departments</h3>
-                <p class="subtitle" style="font-size: 0.95rem; margin-bottom: 18px;">Every dollar of the city budget: revenue sources &rarr; funds &rarr; spending categories &rarr; departments. Hover a band for amounts; click a department for line items.<br>
-                    <em>On the revenue side, comparing a group between years is not strictly like-for-like: the two budget books itemize some revenue differently (FY2025 lists recreation revenue that FY2026 does not), so a group can shift because the book changed how it lists a source rather than because the money changed. The spending categories on the right are anchored to the totals the books themselves print and are directly comparable.</em></p>
-                <div class="chart-wrap" style="height: 640px;">
+                <p class="subtitle chart-note">Every dollar of the city budget: revenue sources &rarr; funds &rarr; spending categories &rarr; departments. Hover a band for amounts; click a department for line items.<br>
+                    <em>On the revenue side, comparing a group between years is not strictly like-for-like: the budget books itemize some revenue differently from year to year (the FY2025 book lists recreation revenue that FY2026's does not), so a group can shift because the book changed how it lists a source rather than because the money changed. The spending categories on the right are anchored to the totals the books themselves print and are directly comparable.</em></p>
+                <div class="chart-wrap flow">
                     <canvas id="sankeyChart"></canvas>
                 </div>
-                <p class="subtitle" style="font-size: 0.95rem; margin-top: 18px;"><strong>Every department</strong> &mdash; click for FY2025 vs FY2026 line items (General Fund by FY2026 budget, then enterprise funds).<br>
-                    <em>Adding up the General Fund departments below gives $198,511,099 for FY2026, $1,999,838 more than the $196,511,261 General Fund total quoted elsewhere on this page; the budget book's own summary excludes the $1,999,838 transit subsidy from the General Fund total while listing it as a separate department appropriation.</em></p>
+                <p class="subtitle chart-note after"><strong>Every department</strong> &mdash; click for line items by year (General Fund, largest first, then enterprise funds).<br>
+                    <em id="gfDeptNote"></em></p>
                 <div class="dept-list" id="deptList"></div>
             </div>
         </div>
     </div>
 </section>
 
-<!-- ===== SECTION 1: WHERE THE MONEY GOES ===== -->
+<!-- ===== WHERE THE MONEY GOES ===== -->
 <section class="section" id="allocation">
     <div class="container">
         <div class="section-header">
             <h2>🗂️ Where the Money Goes</h2>
             <div class="actions">
                 <div class="btn-group" id="allocationToggle">
-                    <button class="active" data-view="pie">Pie</button>
-                    <button data-view="doughnut">Doughnut</button>
-                    <button data-view="bar">Bar</button>
+                    <button type="button" class="active" data-value="pie">Pie</button>
+                    <button type="button" data-value="doughnut">Doughnut</button>
+                    <button type="button" data-value="bar">Bar</button>
                 </div>
             </div>
         </div>
 
         <div class="chart-grid single">
             <div class="chart-card full-width">
-                <h3><span class="icon">📊</span> FY2026 Budget Allocation by Category</h3>
-                <div class="chart-wrap" style="max-height: 520px;">
+                <h3><span class="icon">📊</span> <span data-slot="latest"></span> Budget Allocation by Category</h3>
+                <div class="chart-wrap max-h-520">
                     <canvas id="allocationChart"></canvas>
                 </div>
             </div>
@@ -496,29 +102,29 @@
 
         <div class="insight-box">
             <h4>💡 Key Insight</h4>
-            <p><strong>Education</strong> receives the largest share at <strong id="insightEducation">$238M (54.8%)</strong> of the total budget, followed by <strong>Public Safety</strong> at <strong id="insightPublicSafety">$61.6M (14.2%)</strong>. Together, Education, Public Safety, and Retirement benefits account for over three-quarters of all spending.</p>
+            <p id="insightAllocation"></p>
         </div>
     </div>
 </section>
 
-<!-- ===== SECTION 2: FOUR-YEAR TREND ===== -->
-<section class="section" style="background: var(--white);" id="trend">
+<!-- ===== TREND ===== -->
+<section class="section alt" id="trend">
     <div class="container">
         <div class="section-header">
-            <h2>📈 Four-Year Budget Trend</h2>
+            <h2>📈 Budget Trend</h2>
             <div class="actions">
                 <div class="btn-group" id="trendToggle">
-                    <button class="active" data-view="bar">Grouped Bar</button>
-                    <button data-view="line">Line</button>
-                    <button data-view="stacked">Stacked Bar</button>
+                    <button type="button" class="active" data-value="bar">Grouped Bar</button>
+                    <button type="button" data-value="line">Line</button>
+                    <button type="button" data-value="stacked">Stacked Bar</button>
                 </div>
             </div>
         </div>
 
         <div class="chart-grid single">
             <div class="chart-card full-width">
-                <h3><span class="icon">📈</span> City Budget by Activity (FY2023 – FY2026)</h3>
-                <div class="chart-wrap" style="max-height: 500px;">
+                <h3><span class="icon">📈</span> City Budget by Activity (<span data-slot="first"></span> – <span data-slot="latest"></span>)</h3>
+                <div class="chart-wrap max-h-500">
                     <canvas id="trendChart"></canvas>
                 </div>
             </div>
@@ -526,11 +132,11 @@
     </div>
 </section>
 
-<!-- ===== SECTION 3: CATEGORY GROWTH ===== -->
+<!-- ===== CATEGORY GROWTH ===== -->
 <section class="section" id="growth">
     <div class="container">
         <div class="section-header">
-            <h2>🚀 Category Growth (FY2023 → FY2026)</h2>
+            <h2>🚀 Category Growth (<span data-slot="first"></span> → <span data-slot="latest"></span>)</h2>
         </div>
 
         <div class="chart-grid">
@@ -544,17 +150,8 @@
                 <h3><span class="icon">📋</span> Budget Data Table</h3>
                 <div class="data-table-wrap">
                     <table class="data-table" id="budgetTable">
-                        <thead>
-                            <tr>
-                                <th>Category</th>
-                                <th>FY2023</th>
-                                <th>FY2024</th>
-                                <th>FY2025</th>
-                                <th>FY2026</th>
-                            </tr>
-                        </thead>
-                        <tbody id="tableBody">
-                        </tbody>
+                        <thead id="tableHead"></thead>
+                        <tbody id="tableBody"></tbody>
                     </table>
                 </div>
             </div>
@@ -562,8 +159,8 @@
     </div>
 </section>
 
-<!-- ===== SECTION 4: GENERAL FUND DEEP DIVE ===== -->
-<section class="section" style="background: var(--white);" id="generalfund">
+<!-- ===== GENERAL FUND DEEP DIVE ===== -->
+<section class="section alt" id="generalfund">
     <div class="container">
         <div class="section-header">
             <h2>🏦 General Fund (Excluding School District)</h2>
@@ -586,12 +183,12 @@
 
         <div class="insight-box">
             <h4>💡 Key Insight</h4>
-            <p>The <strong>General Fund</strong> has grown from <strong id="insightGfFy23">$169.9M</strong> in FY2023 to <strong id="insightGfFy26">$196.5M</strong> in FY2026 — an increase of <strong id="insightGfGrowth">15.7%</strong> over four years. Excluding the school district budget, <strong>Public Safety</strong> consumes nearly a third of the General Fund.</p>
+            <p id="insightGeneralFund"></p>
         </div>
     </div>
 </section>
 
-<!-- ===== SECTION 5: COMPARISON VIEW ===== -->
+<!-- ===== YEAR-OVER-YEAR COMPARISON ===== -->
 <section class="section" id="comparison">
     <div class="container">
         <div class="section-header">
@@ -600,8 +197,8 @@
 
         <div class="chart-grid single">
             <div class="chart-card full-width">
-                <h3><span class="icon">📊</span> FY2025 vs FY2026 — Budget Changes</h3>
-                <div class="chart-wrap" style="max-height: 480px;">
+                <h3><span class="icon">📊</span> <span data-slot="previous"></span> vs <span data-slot="latest"></span> — Budget Changes</h3>
+                <div class="chart-wrap max-h-480">
                     <canvas id="comparisonChart"></canvas>
                 </div>
             </div>
@@ -609,1131 +206,61 @@
     </div>
 </section>
 
+</main>
+
 <!-- ===== FOOTER ===== -->
 <footer class="footer">
     <div class="container">
-        <p>Data sourced from the <a href="https://www.manchesternh.gov/Departments/Finance/Budget-Info" target="_blank">City of Manchester, NH — Budget Information</a> page.</p>
-        <p style="margin-top: 6px;">FY2026 Budget Book · Data as of August 2025 · Built for transparency.</p>
+        <p>Data sourced from the <a href="https://www.manchesternh.gov/Departments/Finance/Budget-Info" target="_blank" rel="noopener">City of Manchester, NH — Budget Information</a> page.</p>
+        <p id="footerEdition"></p>
     </div>
 </footer>
 
 <!-- ===== DEPARTMENT DRILL-DOWN MODAL ===== -->
 <div id="deptModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="deptModalTitle" hidden>
     <div class="modal-card">
-        <button class="modal-close" aria-label="Close">&times;</button>
+        <button type="button" class="modal-close" aria-label="Close">&times;</button>
         <h3 id="deptModalTitle"></h3>
-        <p id="deptModalMeta" class="subtitle" style="font-size: 0.95rem;"></p>
-        <div id="deptChartWrap" style="position: relative; height: 260px; margin-top: 16px;">
+        <p id="deptModalMeta" class="subtitle modal-meta"></p>
+        <div id="deptChartWrap" class="modal-chart">
             <canvas id="deptTopChart"></canvas>
         </div>
-        <h4 id="deptOrgHead" hidden>Organizations</h4>
+        <h4 id="deptOrgTitle" hidden>Organizations</h4>
         <div class="dept-table-wrap">
             <table class="dept-table name-first" id="deptOrgTable" hidden>
-                <thead>
-                    <tr><th>Organization</th><th>FY2025</th><th>FY2026</th><th>$ Change</th><th>%</th></tr>
-                </thead>
+                <thead id="deptOrgHead"></thead>
                 <tbody id="deptOrgBody"></tbody>
             </table>
         </div>
         <p id="deptOrgNote" class="dept-table-note" hidden>&ldquo;(unattributed)&rdquo; is a division the budget book prints without a name we can read. &ldquo;Not attributed to an organization&rdquo; is money the book never files under any division. Both are already counted in the department total.</p>
-        <h4 id="deptExpHead">Expense line items</h4>
+        <h4 id="deptExpTitle">Expense line items</h4>
         <div class="dept-table-wrap">
             <table class="dept-table" id="deptExpTable">
-                <thead>
-                    <tr><th>Code</th><th>Description</th><th>FY2025</th><th>FY2026</th><th>$ Change</th><th>%</th></tr>
-                </thead>
+                <thead id="deptExpHead"></thead>
                 <tbody id="deptExpBody"></tbody>
             </table>
         </div>
-        <h4 id="deptRevHead" hidden>Revenue line items</h4>
+        <h4 id="deptRevTitle" hidden>Revenue line items</h4>
         <div class="dept-table-wrap">
             <table class="dept-table" id="deptRevTable" hidden>
-                <thead>
-                    <tr><th>Code</th><th>Description</th><th>FY2025</th><th>FY2026</th><th>$ Change</th><th>%</th></tr>
-                </thead>
+                <thead id="deptRevHead"></thead>
                 <tbody id="deptRevBody"></tbody>
             </table>
         </div>
     </div>
 </div>
 
-<!-- ===== JAVASCRIPT ===== -->
-<script>
-// ================================================================
-// DATA
-// ================================================================
-// FY2025 and FY2026 come from data.js (extract_budget.py). FY2023 and FY2024
-// stay hand-entered: the extractor only covers the two budget books we have.
-//
-// The numbers below were hand-entered from the FY2026 budget book before the
-// extractor existed and the extraction was validated against them, so they are
-// kept as a tripwire: a future extraction that silently changes a category
-// total shows up as a console error instead of a quietly redrawn chart.
-const LEGACY_FY = {
-    'Education (MSD)': [227982610, 237999925], 'Public Safety': [57760666, 61551254],
-    'Retirement': [27291207, 29706516], 'General Government': [25559290, 26788383],
-    'Highway & Streets': [19968652, 21545314], 'Health, Dental & Insurance': [17195489, 17595489],
-    'Debt Service': [16100000, 16100000], 'Other': [10734674, 11050579],
-    'Culture & Recreation': [7618111, 7764641], 'Health & Welfare': [3308180, 4104665],
-    'Economic Development': [223888, 304420],
-};
-
-// Falsy when data.js is missing or failed to load; every consumer then falls
-// back to the legacy figures and the money-flow section shows a notice.
-const HAVE_DATA = typeof window.BUDGET_DATA === 'object' && window.BUDGET_DATA;
-
-// HAVE_DATA only says the payload is an object; the readers below index into nested
-// keys. data.js is generated, so a future rename or removal of a key would throw at
-// top level and halt this whole script — taking the legacy FY2023–FY2026 charts down
-// with it, which is exactly the failure the Chart.js 4 legend bug already caused here.
-// A structural mismatch is therefore reported loudly and then treated like a missing
-// data.js: the reader falls back to the published literal.
-function reportStructure(path, err) {
-    console.error(`BUDGET_DATA structure mismatch at ${path} — falling back to the published `
-        + 'figure. Regenerate data.js: '
-        + 'python extract_budget.py Budget_Book_2025.pdf Budget_Book_2026.pdf', err || '');
-}
-
-function catFY(name, y, legacyIdx) {
-    const legacy = LEGACY_FY[name][legacyIdx];
-    if (!HAVE_DATA) return legacy;
-    let v;
-    try {
-        v = window.BUDGET_DATA.categories[name][y];
-    } catch (err) {
-        reportStructure(`categories.${name}.${y}`, err);
-        return legacy;
-    }
-    if (!Number.isFinite(v)) {
-        reportStructure(`categories.${name}.${y} (got ${v})`);
-        return legacy;
-    }
-    if (v !== legacy)
-        console.error(`BUDGET_DATA mismatch for ${name} ${y}: ${v} != ${legacy}`);
-    return v;
-}
-
-const budgetData = [
-    { category: 'Education (MSD)',             fy23: 187097818, fy24: 191759220, fy25: catFY('Education (MSD)', 'fy25', 0),            fy26: catFY('Education (MSD)', 'fy26', 1),            color: '#1e5a99' },
-    { category: 'Public Safety',               fy23:  51633037, fy24:  55605988, fy25: catFY('Public Safety', 'fy25', 0),              fy26: catFY('Public Safety', 'fy26', 1),              color: '#dc3545' },
-    { category: 'Retirement',                  fy23:  25134031, fy24:  25555116, fy25: catFY('Retirement', 'fy25', 0),                 fy26: catFY('Retirement', 'fy26', 1),                 color: '#6f42c1' },
-    { category: 'General Government',          fy23:  18742866, fy24:  25011825, fy25: catFY('General Government', 'fy25', 0),         fy26: catFY('General Government', 'fy26', 1),         color: '#17a2b8' },
-    { category: 'Highway & Streets',           fy23:  21421714, fy24:  19504209, fy25: catFY('Highway & Streets', 'fy25', 0),          fy26: catFY('Highway & Streets', 'fy26', 1),          color: '#fd7e14' },
-    { category: 'Health, Dental & Insurance',  fy23:  13299242, fy24:  15276990, fy25: catFY('Health, Dental & Insurance', 'fy25', 0), fy26: catFY('Health, Dental & Insurance', 'fy26', 1), color: '#0dcaf0' },
-    { category: 'Debt Service',                fy23:  16100000, fy24:  16100000, fy25: catFY('Debt Service', 'fy25', 0),               fy26: catFY('Debt Service', 'fy26', 1),               color: '#6c757d' },
-    { category: 'Other',                       fy23:  12799403, fy24:  11238353, fy25: catFY('Other', 'fy25', 0),                      fy26: catFY('Other', 'fy26', 1),                      color: '#adb5bd' },
-    { category: 'Culture & Recreation',        fy23:   6649562, fy24:   7161121, fy25: catFY('Culture & Recreation', 'fy25', 0),       fy26: catFY('Culture & Recreation', 'fy26', 1),       color: '#20c997' },
-    { category: 'Health & Welfare',            fy23:   4078143, fy24:   3066657, fy25: catFY('Health & Welfare', 'fy25', 0),           fy26: catFY('Health & Welfare', 'fy26', 1),           color: '#e83e8c' },
-    { category: 'Economic Development',        fy23:     10000, fy24:    175907, fy25: catFY('Economic Development', 'fy25', 0),       fy26: catFY('Economic Development', 'fy26', 1),       color: '#ffc107' },
-];
-
-// Same tripwire, for the citywide total: it is its own sum in the extractor,
-// not the sum of the categories above, so a category check cannot cover it.
-const LEGACY_TOTALS = { fy25: 413742767, fy26: 434511186 };
-
-function citywideFY(y) {
-    const legacy = LEGACY_TOTALS[y];
-    if (!HAVE_DATA) return legacy;
-    let v;
-    try {
-        v = window.BUDGET_DATA.citywide[y];
-    } catch (err) {
-        reportStructure(`citywide.${y}`, err);
-        return legacy;
-    }
-    if (!Number.isFinite(v)) {
-        reportStructure(`citywide.${y} (got ${v})`);
-        return legacy;
-    }
-    if (v !== legacy)
-        console.error(`BUDGET_DATA mismatch for citywide ${y}: ${v} != ${legacy}`);
-    return v;
-}
-
-const totals = {
-    fy23: 356965816,
-    fy24: 370455386,
-    fy25: citywideFY('fy25'),
-    fy26: citywideFY('fy26'),
-};
-
-// Stays literal: BUDGET_DATA has no General Fund field, only the two ways of
-// arriving at one. Both are checked against these numbers below.
-const generalFund = {
-    fy23: 169867998,
-    fy24: 178696166,
-    fy25: 185760157,
-    fy26: 196511261,
-};
-
-// Two statements about the literals above, and they are not equally strong.
-//
-// Arm 1, citywide − Education (MSD), is an algebraic identity over the constants
-// the extractor emits (citywide is defined as General Fund + MSD, and the MSD band
-// is the same constant), so it proves only that data.js has not been hand-edited.
-//
-// Arm 2, property tax + the revenue groups, is a real derivation: the revenue
-// groups are summed from the books' own line items, so it fails whenever a parse
-// or grouping change stops reproducing the General Fund total.
-function checkGeneralFund() {
-    if (!HAVE_DATA) return;
-    const B = window.BUDGET_DATA;
-    for (const y of ['fy25', 'fy26']) {
-        let netOfSchools, taxPlusRevenue;
-        try {
-            netOfSchools = B.citywide[y] - B.categories['Education (MSD)'][y];
-            taxPlusRevenue = B.propertyTax.gf[y]
-                + Object.values(B.revenueGroups).reduce((s, v) => s + v[y], 0);
-        } catch (err) {
-            reportStructure(`the General Fund cross-check for ${y}`, err);
-            return;
-        }
-        if (netOfSchools !== generalFund[y] || taxPlusRevenue !== generalFund[y])
-            console.error(`BUDGET_DATA mismatch for General Fund ${y}: `
-                + `${netOfSchools} (citywide - schools) / ${taxPlusRevenue} (tax + revenue) != ${generalFund[y]}`);
-    }
-}
-checkGeneralFund();
-
-const msdBudget = {
-    fy23: 187097818,
-    fy24: 191759220,
-    fy25: catFY('Education (MSD)', 'fy25', 0),
-    fy26: catFY('Education (MSD)', 'fy26', 1),
-};
-
-// Categories excluding Education (for General Fund view)
-const genFundCategories = budgetData.filter(d => d.category !== 'Education (MSD)');
-
-// ================================================================
-// UTILITIES
-// ================================================================
-function fmt(n) {
-    if (n >= 1e9) return '$' + (n / 1e9).toFixed(2) + 'B';
-    if (n >= 1e6) return '$' + (n / 1e6).toFixed(1) + 'M';
-    if (n >= 1e3) return '$' + (n / 1e3).toFixed(0) + 'K';
-    return '$' + n;
-}
-
-function fmtFull(n) {
-    return '$' + n.toLocaleString('en-US');
-}
-
-function pct(n, total) {
-    return ((n / total) * 100).toFixed(1) + '%';
-}
-
-// ================================================================
-// POPULATE TABLE
-// ================================================================
-function populateTable() {
-    const tbody = document.getElementById('tableBody');
-    budgetData.forEach(d => {
-        const tr = document.createElement('tr');
-        tr.className = 'category-row';
-        tr.innerHTML = `
-            <td>${d.category}</td>
-            <td>${fmtFull(d.fy23)}</td>
-            <td>${fmtFull(d.fy24)}</td>
-            <td>${fmtFull(d.fy25)}</td>
-            <td>${fmtFull(d.fy26)}</td>
-        `;
-        tbody.appendChild(tr);
-    });
-
-    // Total row
-    const trTotal = document.createElement('tr');
-    trTotal.className = 'total';
-    trTotal.innerHTML = `
-        <td>Total Budget</td>
-        <td>${fmtFull(totals.fy23)}</td>
-        <td>${fmtFull(totals.fy24)}</td>
-        <td>${fmtFull(totals.fy25)}</td>
-        <td>${fmtFull(totals.fy26)}</td>
-    `;
-    tbody.appendChild(trTotal);
-
-    // General Fund row
-    const trGF = document.createElement('tr');
-    trGF.className = 'general-fund';
-    trGF.innerHTML = `
-        <td>General Fund Budget</td>
-        <td>${fmtFull(generalFund.fy23)}</td>
-        <td>${fmtFull(generalFund.fy24)}</td>
-        <td>${fmtFull(generalFund.fy25)}</td>
-        <td>${fmtFull(generalFund.fy26)}</td>
-    `;
-    tbody.appendChild(trGF);
-}
-populateTable();
-
-// ================================================================
-// POPULATE HERO KPIs + INSIGHT COPY
-// ================================================================
-// These figures were typed into the markup by hand. Rendering them from the
-// data constants keeps a re-extraction from leaving a stale headline number on
-// a page whose charts have already moved, and LEGACY_COPY holds the wording
-// that shipped so any divergence is reported rather than quietly published.
-const LEGACY_COPY = {
-    kpiTotal: '$434.5M',            kpiTotalChange: '↑ 5.0% from FY2025',
-    kpiGeneralFund: '$196.5M',      kpiGeneralFundChange: '↑ 5.8% from FY2025',
-    kpiMsd: '$238.0M',              kpiMsdChange: '↑ 4.4% from FY2025',
-    kpiEducationShare: '55%',
-    insightEducation: '$238M (54.8%)',
-    insightPublicSafety: '$61.6M (14.2%)',
-    insightGfFy23: '$169.9M',
-    insightGfFy26: '$196.5M',
-    // Corrected: the sentence shipped with 15.6%, a truncation of 15.6849%.
-    insightGfGrowth: '15.7%',
-};
-
-// The insight sentence writes Education's share without a decimal ("$238M")
-// while every other figure carries one; both forms are the published wording,
-// so keep them rather than restyle the copy.
-function fmtM0(n) {
-    return '$' + Math.round(n / 1e6) + 'M';
-}
-
-// Writes the figure and reports if the data no longer agrees with the wording.
-function setCopy(id, text) {
-    if (text !== LEGACY_COPY[id])
-        console.error(`BUDGET_DATA mismatch for copy ${id}: ${text} != ${LEGACY_COPY[id]}`);
-    document.getElementById(id).textContent = text;
-}
-
-// A year-over-year line, with the arrow and the up/down colour taken from the
-// sign of the change instead of assumed. Every FY2026 line is an increase, so
-// this renders exactly what the markup shipped; a future decrease would read
-// "↓ x% from FY2025" in red rather than a green rise.
-function setDelta(id, now, before) {
-    const change = now - before;
-    const direction = change < 0 ? 'down' : 'up';
-    document.getElementById(id).className = 'change ' + direction;
-    setCopy(id, `${change < 0 ? '↓' : '↑'} ${pct(Math.abs(change), before)} from FY2025`);
-}
-
-function populateCopy() {
-    setCopy('kpiTotal', fmt(totals.fy26));
-    setDelta('kpiTotalChange', totals.fy26, totals.fy25);
-    setCopy('kpiGeneralFund', fmt(generalFund.fy26));
-    setDelta('kpiGeneralFundChange', generalFund.fy26, generalFund.fy25);
-    setCopy('kpiMsd', fmt(msdBudget.fy26));
-    setDelta('kpiMsdChange', msdBudget.fy26, msdBudget.fy25);
-    setCopy('kpiEducationShare', ((100 * msdBudget.fy26) / totals.fy26).toFixed(0) + '%');
-
-    const ps = budgetData.find(d => d.category === 'Public Safety');
-    setCopy('insightEducation', `${fmtM0(msdBudget.fy26)} (${pct(msdBudget.fy26, totals.fy26)})`);
-    setCopy('insightPublicSafety', `${fmt(ps.fy26)} (${pct(ps.fy26, totals.fy26)})`);
-
-    setCopy('insightGfFy23', fmt(generalFund.fy23));
-    setCopy('insightGfFy26', fmt(generalFund.fy26));
-    // The sentence shipped saying 15.6%; the four-year growth is 15.6849%, so
-    // that was a truncation, not a rounding choice. Computed and rounded here.
-    setCopy('insightGfGrowth', pct(generalFund.fy26 - generalFund.fy23, generalFund.fy23));
-}
-populateCopy();
-
-// ================================================================
-// CHART: Allocation (Pie / Doughnut / Bar)
-// ================================================================
-const allocCtx = document.getElementById('allocationChart').getContext('2d');
-let allocationChart;
-
-function createAllocationChart(view) {
-    const labels = budgetData.map(d => d.category);
-    const values = budgetData.map(d => d.fy26);
-    const colors = budgetData.map(d => d.color);
-
-    if (allocationChart) allocationChart.destroy();
-
-    if (view === 'pie' || view === 'doughnut') {
-        allocationChart = new Chart(allocCtx, {
-            type: view,
-            data: {
-                labels,
-                datasets: [{
-                    data: values,
-                    backgroundColor: colors,
-                    borderWidth: 2,
-                    borderColor: '#fff',
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: true,
-                plugins: {
-                    legend: {
-                        position: 'right',
-                        labels: {
-                            padding: 14,
-                            font: { size: 12 },
-                            generateLabels: function(chart) {
-                                const data = chart.data;
-                                return data.labels.map((label, i) => ({
-                                    text: label + '  ' + fmt(data.datasets[0].data[i]),
-                                    fillStyle: data.datasets[0].backgroundColor[i],
-                                    strokeStyle: '#ccc',
-                                    lineWidth: 0,
-                                    hidden: false,
-                                    index: i,
-                                }));
-                            }
-                        }
-                    },
-                    tooltip: {
-                        callbacks: {
-                            label: function(ctx) {
-                                const val = ctx.parsed;
-                                const p = ((val / totals.fy26) * 100).toFixed(1);
-                                return ` ${ctx.label}: ${fmtFull(val)} (${p}%)`;
-                            }
-                        }
-                    }
-                }
-            },
-            plugins: [ChartDataLabels]
-        });
-    } else {
-        // Horizontal bar
-        allocationChart = new Chart(allocCtx, {
-            type: 'bar',
-            data: {
-                labels,
-                datasets: [{
-                    label: 'FY2026 Budget',
-                    data: values,
-                    backgroundColor: colors,
-                    borderRadius: 4,
-                }]
-            },
-            options: {
-                indexAxis: 'y',
-                responsive: true,
-                maintainAspectRatio: true,
-                plugins: {
-                    legend: { display: false },
-                    tooltip: {
-                        callbacks: {
-                            label: function(ctx) {
-                                const val = ctx.parsed.x;
-                                const p = ((val / totals.fy26) * 100).toFixed(1);
-                                return ` ${fmtFull(val)} (${p}%)`;
-                            }
-                        }
-                    },
-                    datalabels: {
-                        anchor: 'end',
-                        align: 'end',
-                        color: '#1a1a2e',
-                        font: { size: 11, weight: '600' },
-                        formatter: (v) => fmt(v),
-                    }
-                },
-                scales: {
-                    x: {
-                        ticks: { callback: (v) => fmt(v) },
-                        grid: { display: false },
-                    },
-                    y: {
-                        grid: { display: false },
-                    }
-                }
-            },
-            plugins: [ChartDataLabels]
-        });
-    }
-}
-
-createAllocationChart('pie');
-
-document.getElementById('allocationToggle').addEventListener('click', function(e) {
-    if (e.target.tagName === 'BUTTON') {
-        this.querySelectorAll('button').forEach(b => b.classList.remove('active'));
-        e.target.classList.add('active');
-        createAllocationChart(e.target.dataset.view);
-    }
-});
-
-// ================================================================
-// CHART: Four-Year Trend
-// ================================================================
-const trendCtx = document.getElementById('trendChart').getContext('2d');
-let trendChart;
-
-function createTrendChart(view) {
-    const labels = ['FY2023', 'FY2024', 'FY2025', 'FY2026'];
-    const datasets = budgetData.map(d => ({
-        label: d.category,
-        data: [d.fy23, d.fy24, d.fy25, d.fy26],
-        backgroundColor: d.color,
-        borderColor: d.color,
-        borderWidth: view === 'line' ? 3 : 1,
-        fill: view === 'stacked' ? false : undefined,
-        tension: 0.3,
-        pointRadius: view === 'line' ? 4 : undefined,
-        pointHoverRadius: view === 'line' ? 6 : undefined,
-    }));
-
-    if (trendChart) trendChart.destroy();
-
-    const isStacked = view === 'stacked';
-    const isLine = view === 'line';
-
-    trendChart = new Chart(trendCtx, {
-        type: isLine ? 'line' : 'bar',
-        data: { labels, datasets },
-        options: {
-            responsive: true,
-            maintainAspectRatio: true,
-            interaction: { mode: 'index', intersect: false },
-            plugins: {
-                legend: {
-                    position: 'bottom',
-                    labels: {
-                        boxWidth: 14,
-                        padding: 12,
-                        font: { size: 11 },
-                        // Chart.js 4 signature is filter(legendItem, chartData) — the
-                        // second arg is chart.data, not the chart.
-                        filter: function(item) {
-                            // Show only first 6 in legend for readability
-                            return item.datasetIndex < 6;
-                        }
-                    }
-                },
-                tooltip: {
-                    callbacks: {
-                        label: function(ctx) {
-                            return ` ${ctx.dataset.label}: ${fmtFull(ctx.parsed.y)}`;
-                        }
-                    }
-                }
-            },
-            scales: {
-                x: { grid: { display: false } },
-                y: {
-                    stacked: isStacked,
-                    ticks: { callback: (v) => fmt(v) },
-                }
-            }
-        },
-    });
-}
-
-createTrendChart('bar');
-
-document.getElementById('trendToggle').addEventListener('click', function(e) {
-    if (e.target.tagName === 'BUTTON') {
-        this.querySelectorAll('button').forEach(b => b.classList.remove('active'));
-        e.target.classList.add('active');
-        createTrendChart(e.target.dataset.view);
-    }
-});
-
-// ================================================================
-// CHART: Category Growth (FY2023 → FY2026)
-// ================================================================
-const growthCtx = document.getElementById('growthChart').getContext('2d');
-
-const growthData = budgetData.map(d => ({
-    label: d.category,
-    growth: ((d.fy26 - d.fy23) / d.fy23) * 100,
-    color: d.color,
-}));
-
-// Sort by growth descending
-growthData.sort((a, b) => b.growth - a.growth);
-
-new Chart(growthCtx, {
-    type: 'bar',
-    data: {
-        labels: growthData.map(d => d.label),
-        datasets: [{
-            label: '% Growth FY2023 → FY2026',
-            data: growthData.map(d => d.growth),
-            backgroundColor: growthData.map(d => d.color),
-            borderRadius: 4,
-        }]
-    },
-    options: {
-        indexAxis: 'y',
-        responsive: true,
-        maintainAspectRatio: true,
-        plugins: {
-            legend: { display: false },
-            tooltip: {
-                callbacks: {
-                    label: function(ctx) {
-                        return ` ${ctx.parsed.x.toFixed(1)}% growth`;
-                    }
-                }
-            },
-            datalabels: {
-                anchor: 'end',
-                align: 'end',
-                color: '#1a1a2e',
-                font: { size: 11, weight: '600' },
-                formatter: (v) => v.toFixed(1) + '%',
-            }
-        },
-        scales: {
-            x: {
-                ticks: { callback: (v) => v + '%' },
-                grid: { display: false },
-            },
-            y: {
-                grid: { display: false },
-            }
-        }
-    },
-    plugins: [ChartDataLabels]
-});
-
-// ================================================================
-// CHART: General Fund Allocation (Pie)
-// ================================================================
-const gfCtx = document.getElementById('generalFundChart').getContext('2d');
-
-const gfValues = genFundCategories.map(d => d.fy26);
-const gfLabels = genFundCategories.map(d => d.category);
-const gfColors = genFundCategories.map(d => d.color);
-const gfTotal = gfValues.reduce((a, b) => a + b, 0);
-
-new Chart(gfCtx, {
-    type: 'doughnut',
-    data: {
-        labels: gfLabels,
-        datasets: [{
-            data: gfValues,
-            backgroundColor: gfColors,
-            borderWidth: 2,
-            borderColor: '#fff',
-        }]
-    },
-    options: {
-        responsive: true,
-        maintainAspectRatio: true,
-        plugins: {
-            legend: {
-                position: 'right',
-                labels: {
-                    padding: 10,
-                    font: { size: 10 },
-                    generateLabels: function(chart) {
-                        const data = chart.data;
-                        return data.labels.map((label, i) => ({
-                            text: label + '  ' + fmt(data.datasets[0].data[i]),
-                            fillStyle: data.datasets[0].backgroundColor[i],
-                            strokeStyle: '#ccc',
-                            lineWidth: 0,
-                            hidden: false,
-                            index: i,
-                        }));
-                    }
-                }
-            },
-            tooltip: {
-                callbacks: {
-                    label: function(ctx) {
-                        const val = ctx.parsed;
-                        const p = ((val / gfTotal) * 100).toFixed(1);
-                        return ` ${ctx.label}: ${fmtFull(val)} (${p}%)`;
-                    }
-                }
-            }
-        }
-    },
-    plugins: [ChartDataLabels]
-});
-
-// ================================================================
-// CHART: General Fund Trend
-// ================================================================
-const gfTrendCtx = document.getElementById('generalFundTrendChart').getContext('2d');
-
-new Chart(gfTrendCtx, {
-    type: 'bar',
-    data: {
-        labels: ['FY2023', 'FY2024', 'FY2025', 'FY2026'],
-        datasets: [
-            {
-                label: 'General Fund',
-                data: [generalFund.fy23, generalFund.fy24, generalFund.fy25, generalFund.fy26],
-                backgroundColor: '#1e5a99',
-                borderRadius: 6,
-            },
-            {
-                label: 'Total Budget',
-                data: [totals.fy23, totals.fy24, totals.fy25, totals.fy26],
-                backgroundColor: '#6c757d',
-                borderRadius: 6,
-            }
-        ]
-    },
-    options: {
-        responsive: true,
-        maintainAspectRatio: true,
-        plugins: {
-            legend: { position: 'bottom' },
-            tooltip: {
-                callbacks: {
-                    label: function(ctx) {
-                        return ` ${ctx.dataset.label}: ${fmtFull(ctx.parsed.y)}`;
-                    }
-                }
-            },
-            datalabels: {
-                anchor: 'end',
-                align: 'end',
-                color: '#1a1a2e',
-                font: { size: 10, weight: '600' },
-                formatter: (v) => fmt(v),
-            }
-        },
-        scales: {
-            y: {
-                ticks: { callback: (v) => fmt(v) },
-                grid: { display: true, color: '#eee' },
-            },
-            x: { grid: { display: false } }
-        }
-    },
-    plugins: [ChartDataLabels]
-});
-
-// ================================================================
-// CHART: FY2025 vs FY2026 Comparison
-// ================================================================
-const compCtx = document.getElementById('comparisonChart').getContext('2d');
-
-new Chart(compCtx, {
-    type: 'bar',
-    data: {
-        labels: budgetData.map(d => d.category.split('(')[0].trim()),
-        datasets: [
-            {
-                label: 'FY2025',
-                data: budgetData.map(d => d.fy25),
-                backgroundColor: '#adb5bd',
-                borderRadius: 4,
-            },
-            {
-                label: 'FY2026',
-                data: budgetData.map(d => d.fy26),
-                backgroundColor: budgetData.map(d => d.color),
-                borderRadius: 4,
-            }
-        ]
-    },
-    options: {
-        responsive: true,
-        maintainAspectRatio: true,
-        plugins: {
-            legend: { position: 'bottom' },
-            tooltip: {
-                callbacks: {
-                    label: function(ctx) {
-                        return ` ${ctx.dataset.label}: ${fmtFull(ctx.parsed.y)}`;
-                    }
-                }
-            }
-        },
-        scales: {
-            x: {
-                grid: { display: false },
-                ticks: { maxRotation: 45, font: { size: 11 } }
-            },
-            y: {
-                ticks: { callback: (v) => fmt(v) },
-                grid: { color: '#eee' },
-            }
-        }
-    },
-});
-
-// ================================================================
-// ANIMATION ON SCROLL (simple)
-// ================================================================
-const observerOptions = { threshold: 0.1, rootMargin: '0px 0px -50px 0px' };
-const observer = new IntersectionObserver((entries) => {
-    entries.forEach(entry => {
-        if (entry.isIntersecting) {
-            entry.target.style.opacity = '1';
-            entry.target.style.transform = 'translateY(0)';
-        }
-    });
-}, observerOptions);
-
-document.querySelectorAll('.chart-card').forEach(el => {
-    el.style.opacity = '0';
-    el.style.transform = 'translateY(20px)';
-    el.style.transition = 'opacity 0.6s ease, transform 0.6s ease';
-    observer.observe(el);
-});
-
-// Also observe insight boxes
-document.querySelectorAll('.insight-box').forEach(el => {
-    el.style.opacity = '0';
-    el.style.transform = 'translateY(20px)';
-    el.style.transition = 'opacity 0.6s ease, transform 0.6s ease';
-    observer.observe(el);
-});
-
-// ================================================================
-// CHART: Money-Flow Sankey (revenue → funds → categories → depts)
-// Data source: window.BUDGET_DATA (data.js, extracted from budget books)
-// ================================================================
-const D = window.BUDGET_DATA;
-
-// Category → color, reusing the hand-entered palette above so the Sankey
-// bands match the rest of the page. Fund nodes get their own colors.
-const FLOW_COLORS = Object.fromEntries(budgetData.map(d => [d.category, d.color]));
-FLOW_COLORS['General Fund'] = '#1a2d4a';
-FLOW_COLORS['School District'] = '#1e5a99';
-FLOW_COLORS['Enterprise Funds'] = '#6c757d';
-
-// Build the flow list for a fiscal year ('fy25' | 'fy26').
-// Enterprise funds (fund !== '0101') are excluded — the Sankey shows the
-// tax-supported budget only. Non-positive / missing amounts are dropped.
-function sankeyFlows(y) {
-    const flows = [];
-
-    // Stage 1: revenue sources → funds
-    for (const [g, v] of Object.entries(D.revenueGroups)) {
-        if (v[y] > 0) flows.push({ from: g, to: 'General Fund', flow: v[y] });
-    }
-    flows.push({ from: 'Property Tax', to: 'General Fund', flow: D.propertyTax.gf[y] });
-    flows.push({ from: 'Property Tax', to: 'School District', flow: D.propertyTax.msd[y] });
-    flows.push({ from: 'State & Other School Revenue', to: 'School District', flow: D.msdOther[y] });
-
-    // Stage 2: funds → spending categories
-    for (const [c, v] of Object.entries(D.categories)) {
-        if (c === 'Education (MSD)') flows.push({ from: 'School District', to: c, flow: v[y] });
-        else if (v[y] > 0) flows.push({ from: 'General Fund', to: c, flow: v[y] });
-    }
-
-    // Stage 3: categories → departments (General Fund only).
-    // The two departments the extractor splits internally — Public Works and
-    // Non-Departmental Items — carry 'Mixed (see line items)' rather than any one
-    // category, so they are left off this stage; their money still reaches the
-    // category bands above, just not a department band. 'Other' is kept in the
-    // test as a guard only: no department carries it now.
-    for (const d of D.departments) {
-        if (d.fund !== '0101' || !d.totals[y]) continue;
-        if (d.category && d.category !== 'Mixed (see line items)' && d.category !== 'Other') {
-            flows.push({ from: d.category, to: d.name, flow: d.totals[y] });
-        }
-    }
-
-    // The plugin cannot render zero/negative/missing bands.
-    return flows.filter(f => Number.isFinite(f.flow) && f.flow > 0);
-}
-
-let sankeyChart = null;
-
-function renderSankey(y) {
-    const ctx = document.getElementById('sankeyChart').getContext('2d');
-    if (sankeyChart) sankeyChart.destroy();
-    sankeyChart = new Chart(ctx, {
-        type: 'sankey',
-        data: {
-            datasets: [{
-                data: sankeyFlows(y),
-                colorFrom: c => FLOW_COLORS[c.dataset.data[c.dataIndex].from] || '#2c7bc0',
-                colorTo:   c => FLOW_COLORS[c.dataset.data[c.dataIndex].to]   || '#2c7bc0',
-                colorMode: 'gradient',
-                nodeWidth: 14,
-                borderWidth: 0,
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            animation: false,
-            plugins: {
-                legend: { display: false },
-                datalabels: { display: false },
-                tooltip: {
-                    callbacks: {
-                        label: c => {
-                            const f = c.dataset.data[c.dataIndex];
-                            const total = D.citywide[y];
-                            return ` ${f.from} → ${f.to}: ${fmtFull(f.flow)} (${((100 * f.flow) / total).toFixed(1)}%)`;
-                        }
-                    }
-                }
-            },
-            onClick: (evt, els) => {
-                if (!els.length) return;
-                const f = sankeyChart.data.datasets[0].data[els[0].index];
-                const dept = D.departments.find(d => d.name === f.to);
-                if (dept) onSankeyDeptClick(dept.name);
-            }
-        },
-    });
-}
-
-// Replaced by the department drill-down.
-let onSankeyDeptClick = function(name) {};
-
-// Without data.js there is no flow to draw and no department to open, so the
-// section explains how to generate the data instead of failing silently. The
-// legacy FY2023–FY2026 charts above do not depend on it and still render.
-if (HAVE_DATA) {
-    document.querySelectorAll('#flowYearToggle button').forEach(b =>
-        b.addEventListener('click', () => {
-            document.querySelectorAll('#flowYearToggle button').forEach(x => x.classList.remove('active'));
-            b.classList.add('active');
-            renderSankey(b.dataset.year);
-        }));
-
-    try {
-        renderSankey('fy26');
-    } catch (err) {
-        console.error('Sankey render failed:', err);
-    }
-} else {
-    document.getElementById('flow').innerHTML =
-        '<div class="container"><div class="section-header">'
-        + '<h2>💵 Where the Money Comes From &amp; Where It Goes</h2></div>'
-        + '<p class="subtitle" style="font-size: 0.95rem;">The money-flow chart and department detail need the '
-        + 'extracted budget data. Run <code>python extract_budget.py Budget_Book_2025.pdf Budget_Book_2026.pdf</code> '
-        + 'to generate <code>data.js</code>, then reload this page.</p></div>';
-}
-
-// ================================================================
-// DEPARTMENT DRILL-DOWN: index list under the Sankey + detail modal
-// Data source: window.BUDGET_DATA departments (line items, orgs, totals)
-// ================================================================
-
-// Budget-book quirks the formatter has to survive:
-//  - a year is null when a program only exists in the other year
-//    (e.g. Housing Stability has no FY2026 appropriation) -> em dash
-//  - some revenue lines are negative (state shares remitted back), so the
-//    minus sign has to land outside the dollar sign
-function fmtMoney(n) {
-    if (n == null || !Number.isFinite(n)) return '—';
-    return (n < 0 ? '-' : '') + fmtFull(Math.abs(n));
-}
-
-// Line-item text comes from the PDFs; keep stray &/< from breaking markup.
-function esc(s) {
-    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-
-// Show a row whenever either year carries a nonzero amount. Filtering on
-// "> 0" would hide negative revenue offsets and the visible rows would no
-// longer add up to the department total.
-function hasAmount(v) {
-    return (Number.isFinite(v.fy25) && v.fy25 !== 0) || (Number.isFinite(v.fy26) && v.fy26 !== 0);
-}
-
-// Largest first, using whichever year is present.
-function byAmountDesc(a, b) {
-    return (b.fy26 ?? b.fy25 ?? 0) - (a.fy26 ?? a.fy25 ?? 0);
-}
-
-function newOrGoneBadge(v) {
-    if (v.fy25 == null) return ' <span class="badge-new">new FY26</span>';
-    if (v.fy26 == null) return ' <span class="badge-gone">ended</span>';
-    return '';
-}
-
-// $ change + % change cells. % uses |FY2025| as the base so a shrinking
-// negative offset still reads as an increase.
-function changeCells(v) {
-    const chg = (Number.isFinite(v.fy25) && Number.isFinite(v.fy26)) ? v.fy26 - v.fy25 : null;
-    const cls = chg > 0 ? 'up' : chg < 0 ? 'down' : '';
-    const pctTxt = (chg != null && v.fy25) ? (100 * chg / Math.abs(v.fy25)).toFixed(1) + '%' : '—';
-    return `<td class="${cls}">${chg == null ? '—' : fmtMoney(chg)}</td><td class="${cls}">${pctTxt}</td>`;
-}
-
-function lineRows(items) {
-    return items.filter(hasAmount).sort(byAmountDesc).map(i =>
-        `<tr><td>${esc(i.code)}</td><td>${esc(i.desc)}${newOrGoneBadge(i)}</td>` +
-        `<td>${fmtMoney(i.fy25)}</td><td>${fmtMoney(i.fy26)}</td>${changeCells(i)}</tr>`
-    ).join('');
-}
-
-// Organization (division) breakdown — the only view of internal structure for
-// departments like Public Works whose line items span several categories.
-//
-// The organization figures can undershoot the department total. Aviation's
-// by-organization pages print some section totals in a colon-only form
-// ("Aviation-Parking & Roadways: 3,589,128") that the extractor deliberately
-// does not accept as a section total, so that money reaches the agency bucket
-// with no organization label. The department total and its line items are still
-// correct; only the organization split is short. Rather than let the column
-// silently fail to add up, the shortfall is shown as an explicit final row.
-//
-// Computed per year, because a department can reconcile in one year and not the
-// other, and because a year the department is absent from has a null total and
-// therefore no meaningful remainder.
-function orgResidual(orgs, totals) {
-    const gap = year => {
-        if (!Number.isFinite(totals[year])) return null;
-        const attributed = Object.values(orgs)
-            .reduce((sum, v) => sum + (Number.isFinite(v[year]) ? v[year] : 0), 0);
-        return totals[year] - attributed;
-    };
-    return { fy25: gap('fy25'), fy26: gap('fy26') };
-}
-
-function orgRows(orgs, totals) {
-    const rows = Object.entries(orgs)
-        .filter(([, v]) => hasAmount(v))
-        .sort((a, b) => byAmountDesc(a[1], b[1]))
-        .map(([name, v]) =>
-            `<tr><td>${esc(name)}${newOrGoneBadge(v)}</td>` +
-            `<td>${fmtMoney(v.fy25)}</td><td>${fmtMoney(v.fy26)}</td>${changeCells(v)}</tr>`
-        );
-
-    // Only when a year actually falls short; hasAmount ignores the zero and
-    // null years, so a fully reconciled department gains no extra row.
-    const rest = orgResidual(orgs, totals);
-    if (hasAmount(rest)) {
-        rows.push('<tr class="org-residual"><td>Not attributed to an organization</td>' +
-            `<td>${fmtMoney(rest.fy25)}</td><td>${fmtMoney(rest.fy26)}</td>${changeCells(rest)}</tr>`);
-    }
-    return rows.join('');
-}
-
-let deptTopChart = null;
-
-function openDeptDetail(name) {
-    const d = D.departments.find(x => x.name === name);
-    if (!d) return;
-
-    document.getElementById('deptModalTitle').textContent = d.name;
-
-    // Meta line: only mention the sides of the ledger the department has.
-    // Aviation - Revenues (Various) is revenue-only; Housing Stability has a
-    // null FY2026 appropriation.
-    const spends = hasAmount(d.totals) || d.totals.fy26 == null || d.totals.fy25 == null;
-    const earns = hasAmount(d.revenueTotals);
-    const meta = [d.fund === '0101' ? (d.category || 'General Fund') : `Enterprise fund ${d.fund}`];
-    if (spends) meta.push(`FY2026 appropriation ${fmtMoney(d.totals.fy26)} (FY2025 ${fmtMoney(d.totals.fy25)})`);
-    if (earns) meta.push(`FY2026 revenue ${fmtMoney(d.revenueTotals.fy26)} (FY2025 ${fmtMoney(d.revenueTotals.fy25)})`);
-    document.getElementById('deptModalMeta').textContent = meta.join(' · ');
-
-    const orgHtml = d.orgs ? orgRows(d.orgs, d.totals) : '';
-    document.getElementById('deptOrgBody').innerHTML = orgHtml;
-    document.getElementById('deptOrgHead').hidden = !orgHtml;
-    document.getElementById('deptOrgTable').hidden = !orgHtml;
-
-    // The caption only earns its space when one of the two rows it explains is
-    // on screen — an unnamed division from the book, or the leftover row.
-    const unnamedOrg = !!d.orgs && !!d.orgs['(unattributed)'] && hasAmount(d.orgs['(unattributed)']);
-    const hasResidual = !!d.orgs && hasAmount(orgResidual(d.orgs, d.totals));
-    document.getElementById('deptOrgNote').hidden = !(orgHtml && (unnamedOrg || hasResidual));
-
-    const expHtml = lineRows(d.expenses);
-    document.getElementById('deptExpBody').innerHTML = expHtml;
-    document.getElementById('deptExpHead').hidden = !expHtml;
-    document.getElementById('deptExpTable').hidden = !expHtml;
-
-    const revHtml = lineRows(d.revenues);
-    document.getElementById('deptRevBody').innerHTML = revHtml;
-    document.getElementById('deptRevHead').hidden = !revHtml;
-    document.getElementById('deptRevTable').hidden = !revHtml;
-
-    // Top-items bar chart: expenses when there are any (revenue-only
-    // departments chart their revenues), FY2026 unless that year is empty.
-    const src = d.expenses.some(hasAmount) ? d.expenses : d.revenues;
-    const y = src.some(i => Number.isFinite(i.fy26) && i.fy26 > 0) ? 'fy26' : 'fy25';
-    const top = src.filter(i => Number.isFinite(i[y]) && i[y] > 0).sort((a, b) => b[y] - a[y]).slice(0, 8);
-
-    if (deptTopChart) {
-        deptTopChart.destroy();
-        deptTopChart = null;
-    }
-    document.getElementById('deptChartWrap').hidden = !top.length;
-    if (top.length) {
-        deptTopChart = new Chart(document.getElementById('deptTopChart').getContext('2d'), {
-            type: 'bar',
-            data: {
-                labels: top.map(i => i.desc),
-                datasets: [{
-                    label: y === 'fy26' ? 'FY2026' : 'FY2025',
-                    data: top.map(i => i[y]),
-                    backgroundColor: FLOW_COLORS[d.category] || '#2c7bc0',
-                    borderRadius: 4,
-                }]
-            },
-            options: {
-                indexAxis: 'y',
-                responsive: true,
-                maintainAspectRatio: false,
-                animation: false,
-                plugins: {
-                    legend: { display: false },
-                    datalabels: { display: false },
-                    tooltip: {
-                        callbacks: { label: ctx => ` ${ctx.dataset.label}: ${fmtFull(ctx.parsed.x)}` }
-                    }
-                },
-                scales: {
-                    x: { ticks: { callback: v => fmt(v) } },
-                    y: { grid: { display: false }, ticks: { font: { size: 11 } } }
-                }
-            },
-        });
-    }
-
-    document.getElementById('deptModal').hidden = false;
-}
-
-// Replaces the Sankey's no-op stub declared above.
-onSankeyDeptClick = openDeptDetail;
-
-function closeDeptDetail() {
-    document.getElementById('deptModal').hidden = true;
-}
-
-document.querySelector('#deptModal .modal-close').addEventListener('click', closeDeptDetail);
-document.getElementById('deptModal').addEventListener('click', e => {
-    if (e.target.id === 'deptModal') closeDeptDetail();
-});
-document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') closeDeptDetail();
-});
-
-// ---- Department index list -------------------------------------------------
-// Every department is reachable here; the Sankey only makes the ~19
-// single-category General Fund bands clickable.
-(function buildDeptList() {
-    // #deptList is gone when the no-data notice replaced the section above.
-    const el = document.getElementById('deptList');
-    if (!el || !HAVE_DATA) return;
-
-    // Sort weight: FY2026 appropriation, falling back to FY2025, then to
-    // revenue for revenue-only departments.
-    const weight = d => (d.totals.fy26 ?? d.totals.fy25 ?? 0) || (d.revenueTotals.fy26 ?? d.revenueTotals.fy25 ?? 0);
-    // Keep a department if either side of its ledger has money in either year.
-    const listed = D.departments.filter(d => hasAmount(d.totals) || hasAmount(d.revenueTotals));
-    const groups = [
-        ['General Fund', listed.filter(d => d.fund === '0101')],
-        ['Enterprise Funds', listed.filter(d => d.fund !== '0101')],
-    ];
-
-    for (const [label, members] of groups) {
-        if (!members.length) continue;
-        const head = document.createElement('div');
-        head.className = 'dept-list-label';
-        head.textContent = label;
-        el.appendChild(head);
-        for (const d of members.sort((a, b) => weight(b) - weight(a))) {
-            const btn = document.createElement('button');
-            btn.type = 'button';
-            btn.textContent = d.fund === '0101' ? d.name : `${d.name} (Enterprise)`;
-            btn.title = hasAmount(d.totals)
-                ? `FY2026 appropriation ${fmtMoney(d.totals.fy26)}`
-                : `FY2026 revenue ${fmtMoney(d.revenueTotals.fy26)}`;
-            btn.addEventListener('click', () => openDeptDetail(d.name));
-            el.appendChild(btn);
-        }
-    }
-})();
-</script>
+<!-- Classic scripts, not ES modules: module scripts are blocked on file://, and the page has
+     to open straight from disk. Order matters: each file uses the ones above it. -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-chart-sankey@0.14.0/dist/chartjs-chart-sankey.min.js"></script>
+<script src="data.js"></script>
+<script src="js/format.js"></script>
+<script src="js/model.js"></script>
+<script src="js/charts.js"></script>
+<script src="js/sections.js"></script>
+<script src="js/drilldown.js"></script>
+<script src="js/app.js"></script>
 </body>
 </html>
