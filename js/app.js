@@ -1,8 +1,8 @@
 // Boot: render every section from window.BUDGET_DATA (data.js), each in isolation.
 //
-// Each step runs in its own try/catch. A bug, a structurally changed data.js, or the CDN
-// charting scripts failing to load then costs only the sections that depend on it -- the
-// headline figures and the table still render -- instead of halting the whole script.
+// Local DOM steps run immediately without waiting for the deferred CDN scripts, so headline
+// figures, insights, tables and department modals render on first paint even when offline.
+// Below-the-fold charts render lazily as they scroll near the viewport (and flush on print).
 
 function showMissingData() {
     document.getElementById('content').innerHTML =
@@ -11,23 +11,74 @@ function showMissingData() {
         + '<code>python -m budget</code> to generate <code>data.js</code>, then reload.</p></div></section>';
 }
 
+function runSafely(name, fn) {
+    try {
+        fn();
+    } catch (err) {
+        console.error(`${name} failed:`, err);
+    }
+}
+
+function bootCharts(D) {
+    if (typeof Chart !== 'function') return;
+    runSafely('renderFlow', () => renderFlow(D));
+
+    const deferred = [
+        ['allocation', renderAllocation],
+        ['trend', renderTrend],
+        ['growth', renderGrowth],
+        ['generalfund', renderGeneralFund],
+        ['comparison', renderComparison],
+    ];
+    if (typeof IntersectionObserver !== 'function') {
+        for (const [, step] of deferred) runSafely(step.name, () => step(D));
+        return;
+    }
+
+    const pending = new Map();
+    const observer = new IntersectionObserver(entries => {
+        for (const entry of entries) {
+            if (!entry.isIntersecting) continue;
+            const step = pending.get(entry.target);
+            if (!step) continue;
+            pending.delete(entry.target);
+            observer.unobserve(entry.target);
+            runSafely(step.name, () => step(D));
+        }
+    }, { rootMargin: '300px 0px' });
+
+    for (const [id, step] of deferred) {
+        const el = document.getElementById(id);
+        if (!el) continue;
+        pending.set(el, step);
+        observer.observe(el);
+    }
+
+    window.addEventListener('beforeprint', () => {
+        for (const [el, step] of pending) {
+            pending.delete(el);
+            observer.unobserve(el);
+            runSafely(step.name, () => step(D));
+        }
+    });
+}
+
 (function boot() {
     const D = window.BUDGET_DATA;
-    if (!D || typeof D !== 'object' || !Array.isArray(D.years)) {
+    if (!D || typeof D !== 'object' || !Array.isArray(D.years) || !D.years.length) {
         showMissingData();
         return;
     }
-    const steps = [
+    const immediateSteps = [
         fillSlots, renderKpis, renderInsights, renderTable,
-        renderAllocation, renderTrend, renderGrowth, renderGeneralFund, renderComparison,
-        renderFlow, renderDeptNote, renderDeptList, initDeptModal,
+        renderDeptNote, renderDeptList, initDeptModal, animateOnScroll,
     ];
-    for (const step of steps) {
-        try {
-            step(D);
-        } catch (err) {
-            console.error(`${step.name} failed:`, err);
-        }
+    for (const step of immediateSteps) {
+        runSafely(step.name, () => step(D));
     }
-    animateOnScroll();
+    if (typeof Chart === 'function') {
+        bootCharts(D);
+    } else {
+        window.addEventListener('DOMContentLoaded', () => bootCharts(D), { once: true });
+    }
 })();

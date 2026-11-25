@@ -139,10 +139,25 @@ function topItems(items, years, n) {
     return { year: null, items: [] };
 }
 
+// Truncates extreme small-base growth outliers (e.g. Economic Development +2,944% off a
+// $10K base) so they do not crush every other category's bar to a 1px sliver. Preserves
+// the true `growth` on every row and flags `capped: true` so the label and note state the
+// exact figure honestly.
+function capOutlierGrowth(rows) {
+    const positives = rows.map(r => r.growth).filter(g => g > 0).sort((a, b) => b - a);
+    const hasOutlier = positives.length >= 2 && positives[0] > 100 && positives[0] > positives[1] * 3;
+    const cap = hasOutlier ? Math.ceil(positives[1] / 10) * 10 + 15 : Infinity;
+    return rows.map(r => ({
+        ...r,
+        plotted: r.growth > cap ? cap : r.growth,
+        capped: r.growth > cap,
+    }));
+}
+
 if (typeof module === 'object' && module.exports) {
     module.exports = {
         extractedYears, latestYear, previousYear, categoryRows, generalFundRows, growth,
         sankeyFlows, generalFundDepartmentTotal, hasAmount, latestValue, byLatestDesc,
-        change, yearStatus, orgResidual, topItems,
+        change, yearStatus, orgResidual, topItems, capOutlierGrowth,
     };
 }

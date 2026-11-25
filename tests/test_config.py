@@ -25,7 +25,22 @@ def test_repository_years_load_oldest_first(years):
 
 def test_a_hand_entered_year_needs_no_book(tmp_path):
     (year,) = load_years(_write(tmp_path))
-    assert not year.extracted and year.citywide == 130
+    assert not year.extracted and year.source_path is None and year.citywide == 130
+
+
+def test_empty_or_escaping_source_path_is_rejected(tmp_path):
+    anchors = {"gf_total": 30, "gf_revenue": 5, "msd_total": 100, "msd_property_tax": 50}
+    with pytest.raises(BudgetError, match="non-empty string"):
+        load_years(_write(tmp_path, source="", anchors=anchors))
+    with pytest.raises(BudgetError, match="inside sources/"):
+        load_years(_write(tmp_path, source="../outside.pdf", anchors=anchors))
+
+
+def test_non_integer_amounts_are_rejected_cleanly(tmp_path):
+    with pytest.raises(BudgetError, match="expected integer amounts"):
+        load_years(_write(tmp_path, anchors={"gf_total": None, "msd_total": 100}))
+    with pytest.raises(BudgetError, match="expected integer amounts"):
+        load_years(_write(tmp_path, categories={"Public Safety": True, "Other": 29}))
 
 
 def test_categories_must_add_up_to_the_general_fund_total(tmp_path):

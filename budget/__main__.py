@@ -2,30 +2,49 @@
 import argparse
 import sys
 
+from .categorize import categorize, gf_totals, group_revenues
 from .checks import check_book, check_payload
 from .config import DATA_JS, load_years
 from .errors import BudgetError
-from .parse import parse_book, read_pages
+from .parse import parse_books, read_page
 from .payload import build_budget_data, render_data_js
 from .report import print_report
 
 
+def _safe_print(text):
+    try:
+        print(text)
+    except UnicodeEncodeError:
+        enc = sys.stdout.encoding or "utf-8"
+        print(text.encode(enc, errors="replace").decode(enc))
+
+
 def _dump(pdf, page):
     """Print one page's raw text layer. `page` is 1-based, as the report prints it."""
-    pages = read_pages(pdf)
-    if not 1 <= page <= len(pages):
-        raise BudgetError(f"{pdf} has pages 1-{len(pages)}, not {page}")
-    print(pages[page - 1])
+    _safe_print(read_page(pdf, page))
+
+
+def _parse_page_arg(raw):
+    try:
+        return int(raw)
+    except ValueError as exc:
+        raise BudgetError(f"page number must be an integer, got {raw!r}") from exc
 
 
 def build(out=DATA_JS):
     """Parse, reconcile and, only if every check passes, write `out`. Returns an exit code."""
     years = load_years()
-    books = {y.label: parse_book(y.source_path) for y in years if y.extracted}
-    failures = [f for y in years if y.extracted for f in check_book(books[y.label], y)]
-    data = build_budget_data(years, books)
+    extracted = [y for y in years if y.extracted]
+    books = parse_books(years)
+    totals = {y.label: gf_totals(books[y.label]) for y in extracted}
+    parsed = {y.label: categorize(books[y.label]) for y in extracted}
+    revenue = {y.label: group_revenues(books[y.label]) for y in extracted}
+    failures = [f for y in extracted
+                for f in check_book(books[y.label], y,
+                                    categories=parsed[y.label], totals=totals[y.label])]
+    data = build_budget_data(years, books, parsed=parsed, revenue=revenue)
     failures += check_payload(data)
-    print_report(years, books, data, failures)
+    print_report(years, books, data, failures, totals=totals)
     if failures:
         print(f"FAILED: {len(failures)} check(s) did not reconcile; {out.name} not written")
         return 1
@@ -45,7 +64,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         if args.dump:
-            _dump(args.dump[0], int(args.dump[1]))
+            _dump(args.dump[0], _parse_page_arg(args.dump[1]))
             return 0
         return build()
     except BudgetError as exc:

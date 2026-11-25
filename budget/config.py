@@ -14,6 +14,7 @@ from .model import agrees
 
 ROOT = Path(__file__).resolve().parent.parent
 YEARS_DIR = ROOT / "years"
+SOURCES_DIR = (ROOT / "sources").resolve()
 DATA_JS = ROOT / "data.js"
 
 _TOP_KEYS = {"label", "period", "source", "as_of", "anchors", "categories", "_comment"}
@@ -21,6 +22,10 @@ _ANCHOR_KEYS = {"gf_total", "gf_revenue", "msd_total", "msd_property_tax"}
 # An extracted year has to reproduce its revenue total and split the school district's
 # property tax out for the flow diagram; a hand-entered year only draws category bars.
 _EXTRACTED_ANCHORS = _ANCHOR_KEYS
+
+
+def _is_int(v):
+    return isinstance(v, int) and not isinstance(v, bool)
 
 
 @dataclass(frozen=True)
@@ -41,7 +46,7 @@ class YearConfig:
 
     @property
     def source_path(self):
-        return ROOT / self.source
+        return (ROOT / self.source).resolve() if self.source is not None else None
 
     @property
     def citywide(self):
@@ -53,21 +58,40 @@ def _year_from_json(path):
         raw = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         raise BudgetError(f"{path.name}: not valid JSON: {exc}") from exc
-    unknown = set(raw) - _TOP_KEYS
+    if not isinstance(raw, dict):
+        raise BudgetError(f"{path.name}: top-level JSON value must be an object")
     anchors = raw.get("anchors", {})
+    categories = raw.get("categories")
+    if not isinstance(anchors, dict):
+        raise BudgetError(f"{path.name}: 'anchors' must be an object")
+    if categories is not None and not isinstance(categories, dict):
+        raise BudgetError(f"{path.name}: 'categories' must be an object")
+    unknown = set(raw) - _TOP_KEYS
     unknown |= {f"anchors.{k}" for k in set(anchors) - _ANCHOR_KEYS}
     if unknown:  # a typo'd key would otherwise be ignored and its anchor never checked
         raise BudgetError(f"{path.name}: unknown keys {sorted(unknown)}")
+    source = raw.get("source")
+    if source is not None and (not isinstance(source, str) or not source.strip()):
+        raise BudgetError(f"{path.name}: 'source' must be a non-empty string or null")
     required = {"label", "period", "categories"} - set(raw)
     required |= {f"anchors.{k}" for k in ({"gf_total", "msd_total"} - set(anchors))}
-    if raw.get("source"):
+    if source is not None:
         required |= {f"anchors.{k}" for k in _EXTRACTED_ANCHORS - set(anchors)}
     if required:
         raise BudgetError(f"{path.name}: missing {sorted(required)}")
+    if not isinstance(raw["label"], str) or not isinstance(raw["period"], str) or not raw["period"].strip():
+        raise BudgetError(f"{path.name}: 'label' and 'period' must be non-empty strings")
+    as_of = raw.get("as_of")
+    if as_of is not None and (not isinstance(as_of, str) or not as_of.strip()):
+        raise BudgetError(f"{path.name}: 'as_of' must be a non-empty string or null")
     if raw["label"] != path.stem:
         raise BudgetError(f"{path.name}: label {raw['label']!r} does not match the file name")
-    return YearConfig(label=raw["label"], period=raw["period"], source=raw.get("source"),
-                      as_of=raw.get("as_of"), categories=dict(raw["categories"]), **anchors)
+    bad_ints = [f"anchors.{k}" for k, v in anchors.items() if not _is_int(v)]
+    bad_ints += [f"categories.{k}" for k, v in categories.items() if not isinstance(k, str) or not _is_int(v)]
+    if bad_ints:
+        raise BudgetError(f"{path.name}: expected integer amounts for {sorted(bad_ints)}")
+    return YearConfig(label=raw["label"], period=raw["period"], source=source,
+                      as_of=as_of, categories=dict(categories), **anchors)
 
 
 def _check_year(year):
@@ -76,8 +100,11 @@ def _check_year(year):
     if not agrees(total, year.gf_total):
         raise BudgetError(f"{year.label}: categories sum to {total:,}, "
                           f"not the General Fund total {year.gf_total:,}")
-    if year.extracted and not year.source_path.is_file():
-        raise BudgetError(f"{year.label}: budget book not found: {year.source}")
+    if year.extracted:
+        if not year.source_path.is_relative_to(SOURCES_DIR):
+            raise BudgetError(f"{year.label}: source must be inside sources/: {year.source}")
+        if not year.source_path.is_file():
+            raise BudgetError(f"{year.label}: budget book not found: {year.source}")
 
 
 def load_years(years_dir=YEARS_DIR):

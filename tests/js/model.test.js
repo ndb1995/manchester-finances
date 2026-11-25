@@ -1,4 +1,4 @@
-// Node tests for the page's pure logic: `node --test tests/js/`.
+// Node tests for the page's pure logic: `node --test`.
 // js/format.js and js/model.js are classic browser scripts that also export for Node, and
 // data.js is the committed payload, so these run against the numbers the site serves.
 const test = require('node:test');
@@ -90,11 +90,35 @@ test('latestValue and byLatestDesc sort by the latest present year', () => {
     assert.deepEqual(rows.sort(m.byLatestDesc(['A', 'B'])).map(r => m.latestValue(r, ['A', 'B'])), [50, 10, 1]);
 });
 
-test('money formatting', () => {
+test('capOutlierGrowth truncates extreme small-base outliers while preserving true growth', () => {
+    const capped = m.capOutlierGrowth([
+        { label: 'Economic Development', growth: 2944.2 },
+        { label: 'General Government', growth: 42.9 },
+        { label: 'Other', growth: -13.7 },
+    ]);
+    assert.equal(capped[0].capped, true);
+    assert.equal(capped[0].growth, 2944.2);
+    assert.equal(capped[0].plotted, 65);
+    assert.equal(capped[1].capped, false);
+    assert.equal(capped[1].plotted, 42.9);
+
+    const normal = m.capOutlierGrowth([
+        { label: 'A', growth: 40 },
+        { label: 'B', growth: 25 },
+    ]);
+    assert.ok(normal.every(r => !r.capped && r.plotted === r.growth));
+});
+
+test('money and HTML formatting', () => {
     assert.equal(f.fmt(434511186), '$434.5M');
     assert.equal(f.fmt(304420), '$304K');
+    assert.equal(f.fmt(-50000), '-$50K');
+    assert.equal(f.fmt(999600), '$1.0M');
+    assert.equal(f.fmt(999960000), '$1.00B');
+    assert.equal(f.fmt(null), '—');
     assert.equal(f.fmtMoney(-160000), '-$160,000');
     assert.equal(f.fmtMoney(null), '—');
     assert.equal(f.pct(61551254, 434511186), '14.2%');
-    assert.equal(f.esc('a<b & c'), 'a&lt;b &amp; c');
+    assert.equal(f.pct(10, 0), '—');
+    assert.equal(f.esc('a<b & "c" \'d\'>'), 'a&lt;b &amp; &quot;c&quot; &#39;d&#39;&gt;');
 });

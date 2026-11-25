@@ -4,7 +4,9 @@
 
 /* ===== RESET & BASE ===== */
 *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
-html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: no-preference) {
+    html { scroll-behavior: smooth; }
+}
 body {
     font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
     background: var(--bg);
@@ -19,7 +21,6 @@ body {
     --blue: #1e5a99;
     --blue-light: #2c7bc0;
     --teal: #17a2b8;
-    --gold: #d4a746;
     --green: #28a745;
     --red: #dc3545;
     --orange: #fd7e14;
@@ -357,8 +358,8 @@ h3 { font-size: 1.2rem; font-weight: 600; }
 .dept-table.name-first th:first-child,
 .dept-table.name-first td:first-child { text-align: left; }
 .dept-table tr:hover td { background: var(--row-hover); }
-.dept-table .up { color: var(--red); }
-.dept-table .down { color: var(--green); }
+.dept-table .up { color: var(--green); }
+.dept-table .down { color: var(--red); }
 /* Money the book did not file under a named organization: muted, and it
    deliberately outranks .up/.down so the gap reads as an attribution
    artifact rather than a spending trend. */
@@ -409,5 +410,12 @@ h3 { font-size: 1.2rem; font-weight: 600; }
     .section-header { flex-direction: column; align-items: flex-start; }
 }
 
-/* ===== UTILITIES ===== */
-.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); }
+/* ===== PRINT ===== */
+@media print {
+    .chart-card, .insight-box {
+        opacity: 1 !important;
+        transform: none !important;
+        break-inside: avoid;
+        box-shadow: none;
+    }
+}

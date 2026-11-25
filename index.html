@@ -3,7 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' file:; script-src 'self' file: https://cdn.jsdelivr.net; style-src 'self' file: 'unsafe-inline'; img-src 'self' file: data:; connect-src 'none'; object-src 'none'; base-uri 'none';">
     <title>Manchester NH Budget Visualizer</title>
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
     <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
@@ -83,10 +85,10 @@
         <div class="section-header">
             <h2>🗂️ Where the Money Goes</h2>
             <div class="actions">
-                <div class="btn-group" id="allocationToggle">
-                    <button type="button" class="active" data-value="pie">Pie</button>
-                    <button type="button" data-value="doughnut">Doughnut</button>
-                    <button type="button" data-value="bar">Bar</button>
+                <div class="btn-group" id="allocationToggle" aria-label="Allocation chart type">
+                    <button type="button" class="active" aria-pressed="true" data-value="pie">Pie</button>
+                    <button type="button" aria-pressed="false" data-value="doughnut">Doughnut</button>
+                    <button type="button" aria-pressed="false" data-value="bar">Bar</button>
                 </div>
             </div>
         </div>
@@ -113,10 +115,10 @@
         <div class="section-header">
             <h2>📈 Budget Trend</h2>
             <div class="actions">
-                <div class="btn-group" id="trendToggle">
-                    <button type="button" class="active" data-value="bar">Grouped Bar</button>
-                    <button type="button" data-value="line">Line</button>
-                    <button type="button" data-value="stacked">Stacked Bar</button>
+                <div class="btn-group" id="trendToggle" aria-label="Trend chart type">
+                    <button type="button" class="active" aria-pressed="true" data-value="bar">Grouped Bar</button>
+                    <button type="button" aria-pressed="false" data-value="line">Line</button>
+                    <button type="button" aria-pressed="false" data-value="stacked">Stacked Bar</button>
                 </div>
             </div>
         </div>
@@ -142,6 +144,7 @@
         <div class="chart-grid">
             <div class="chart-card">
                 <h3><span class="icon">📊</span> Growth by Category</h3>
+                <p id="growthNote" class="subtitle chart-note" hidden></p>
                 <div class="chart-wrap">
                     <canvas id="growthChart"></canvas>
                 </div>
@@ -251,10 +254,8 @@
 </div>
 
 <!-- Classic scripts, not ES modules: module scripts are blocked on file://, and the page has
-     to open straight from disk. Order matters: each file uses the ones above it. -->
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chartjs-chart-sankey@0.14.0/dist/chartjs-chart-sankey.min.js"></script>
+     to open straight from disk. Local scripts run first so headline figures, tables and modals
+     render immediately even when offline; deferred CDN scripts render the charts once loaded. -->
 <script src="data.js"></script>
 <script src="js/format.js"></script>
 <script src="js/model.js"></script>
@@ -262,5 +263,8 @@
 <script src="js/sections.js"></script>
 <script src="js/drilldown.js"></script>
 <script src="js/app.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js" integrity="sha384-vsrfeLOOY6KuIYKDlmVH5UiBmgIdB1oEf7p01YgWHuqmOHfZr374+odEv96n9tNC" crossorigin="anonymous"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js" integrity="sha384-y49Zu59jZHJL/PLKgZPv3k2WI9c0Yp3pWB76V8OBVCb0QBKS8l4Ff3YslzHVX76Y" crossorigin="anonymous"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/chartjs-chart-sankey@0.14.0/dist/chartjs-chart-sankey.min.js" integrity="sha384-qO+UcjSHHumifg7pHEa3yM4N1NlKG5NrZoHwN0wubVR6rlaK60BjNZ3QHrSCU9Fj" crossorigin="anonymous"></script>
 </body>
 </html>

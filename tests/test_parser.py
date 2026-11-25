@@ -50,7 +50,7 @@ def test_parse_amount_handles_commas_spaces_dollar():
 
 def test_classify_expense_page():
     m = parse.classify_page(ASSESSORS_EXPENSE)
-    assert m == {"kind": "expense", "fund_code": "0101", "fund_name": "General Fund",
+    assert m == {"kind": "expense", "fund_code": "0101",
                  "agency_code": "020", "agency_name": "Board of Assessors",
                  "by_org": False, "orgs": []}
 
@@ -450,12 +450,49 @@ SYNTHETIC_ADJACENT_ITEM_STARTS = """Object Description Budget
 Synthetic Section Total: 5,000"""
 
 def test_rejoin_does_not_merge_adjacent_item_start_lines():
-    secs = parse.parse_sections(SYNTHETIC_ADJACENT_ITEM_STARTS)
+    dropped = []
+    secs = parse.parse_sections(SYNTHETIC_ADJACENT_ITEM_STARTS, dropped)
     items = secs[0]["items"]
     assert items == []
     assert not any(code == "0740" for code, _, _ in items)
     assert secs[0]["total_label"] == "Synthetic Section"
     assert secs[0]["total"] == 5000
+    assert dropped == ["0740 Equipment", "0741 5,000"]
+
+
+def test_broken_item_under_1000_is_reported_while_dash_zero_is_ignored():
+    text = """Object Description Budget
+0540 Advertising $500
+4898 Refund on Parking Ticket -
+Section Total: 0"""
+    dropped = []
+    parse.parse_sections(text, dropped)
+    assert dropped == ["0540 Advertising $500"]
+
+
+def test_negative_printed_grand_total_is_not_floored_to_zero():
+    page = """Object Description Budget
+4210 State Share Certified Record (160,000)
+Synthetic Clerk Total: (160,000)
+Fund:  0101  General Fund
+Agency:  040  Synthetic Clerk
+FY 2026 Revenue Budget
+1"""
+    book = parse.parse_pages([page])
+    assert book.printed[("Synthetic Clerk", "revenue")] == -160_000
+    assert book.warnings == []
+
+
+def test_dump_cli_validates_arguments_and_reads_single_page(capsys):
+    from budget.__main__ import main
+    assert main(["--dump", "sources/Budget_Book_2026.pdf", "not-an-int"]) == 1
+    assert "integer" in capsys.readouterr().err
+    assert main(["--dump", "sources/nope.pdf", "1"]) == 1
+    assert "cannot read PDF" in capsys.readouterr().err
+    assert main(["--dump", "sources/Budget_Book_2026.pdf", "999"]) == 1
+    assert "pages 1-" in capsys.readouterr().err
+    assert main(["--dump", "sources/Budget_Book_2026.pdf", "11"]) == 0
+    assert "Board of Assessors" in capsys.readouterr().out
 
 
 def test_parse_pages_builds_a_book_from_text_alone():
@@ -463,7 +500,7 @@ def test_parse_pages_builds_a_book_from_text_alone():
     # few lines of synthetic text instead of a whole budget book
     book = parse.parse_pages([ASSESSORS_EXPENSE, "Table of Contents\n1"])
     assessors = book.agencies["Board of Assessors"]
-    assert assessors.code == "020" and assessors.in_general_fund
+    assert assessors.in_general_fund
     assert book.printed == {("Board of Assessors", "expense"): 937_285}
     # the excerpt keeps three of the page's lines, so the bucket misses the printed total --
     # and the book says so rather than trusting either figure

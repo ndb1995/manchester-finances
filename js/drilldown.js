@@ -1,6 +1,8 @@
 // Department drill-down: the index list under the Sankey, and the detail modal.
 // Columns are the extracted years; the change columns compare the last two of them.
 
+let modalTriggerEl = null;
+
 function comparedYears(D) {
     const years = extractedYears(D);
     return { years, before: years[years.length - 2], now: years[years.length - 1] };
@@ -8,7 +10,7 @@ function comparedYears(D) {
 
 function statusBadge(v, before, now) {
     const status = yearStatus(v, before, now);
-    if (status === 'new') return ` <span class="badge-new">new ${now}</span>`;
+    if (status === 'new') return ` <span class="badge-new">new ${esc(now)}</span>`;
     if (status === 'ended') return ' <span class="badge-gone">ended</span>';
     return '';
 }
@@ -25,8 +27,8 @@ function yearCells(v, years) {
 }
 
 function headRow(leading, { years, before, now }) {
-    const span = before ? `${before} → ${now}` : '';
-    return `<tr>${leading.map(h => `<th>${h}</th>`).join('')}${years.map(y => `<th>${y}</th>`).join('')}`
+    const span = before ? esc(`${before} → ${now}`) : '';
+    return `<tr>${leading.map(h => `<th>${esc(h)}</th>`).join('')}${years.map(y => `<th>${esc(y)}</th>`).join('')}`
         + `<th title="${span}">$ Change</th><th title="${span}">%</th></tr>`;
 }
 
@@ -80,7 +82,7 @@ function openDeptDetail(D, name) {
     // Meta line: only mention the sides of the ledger the department has. Aviation -
     // Revenues (Various) is revenue-only; Housing Stability has no FY2026 appropriation.
     const versus = v => (before ? ` (${before} ${fmtMoney(v[before])})` : '');
-    const spends = hasAmount(d.totals) || Object.values(d.totals).some(v => v == null);
+    const spends = d.expenses.length > 0 || hasAmount(d.totals);
     const meta = [d.generalFund ? d.category : `Enterprise fund ${d.fund}`];
     if (spends) meta.push(`${now} appropriation ${fmtMoney(d.totals[now])}${versus(d.totals)}`);
     if (hasAmount(d.revenueTotals)) {
@@ -105,8 +107,9 @@ function openDeptDetail(D, name) {
     const source = d.expenses.some(i => hasAmount(i.amounts)) ? d.expenses : d.revenues;
     const top = topItems(source, cols.years, 8);
     clearChart('deptTopChart');
-    document.getElementById('deptChartWrap').hidden = !top.items.length;
-    if (top.items.length) {
+    const canChart = typeof Chart === 'function' && top.items.length > 0;
+    document.getElementById('deptChartWrap').hidden = !canChart;
+    if (canChart) {
         drawChart('deptTopChart', {
             type: 'bar',
             data: {
@@ -132,11 +135,22 @@ function openDeptDetail(D, name) {
         });
     }
 
-    document.getElementById('deptModal').hidden = false;
+    const modal = document.getElementById('deptModal');
+    modalTriggerEl = document.activeElement;
+    modal.hidden = false;
+    document.body.style.overflow = 'hidden';
+    modal.querySelector('.modal-close')?.focus();
 }
 
 function closeDeptDetail() {
-    document.getElementById('deptModal').hidden = true;
+    const modal = document.getElementById('deptModal');
+    if (modal.hidden) return;
+    modal.hidden = true;
+    document.body.style.overflow = '';
+    if (modalTriggerEl && typeof modalTriggerEl.focus === 'function') {
+        modalTriggerEl.focus();
+    }
+    modalTriggerEl = null;
 }
 
 function initDeptModal() {
@@ -146,7 +160,25 @@ function initDeptModal() {
         if (e.target === modal) closeDeptDetail();
     });
     document.addEventListener('keydown', e => {
-        if (e.key === 'Escape') closeDeptDetail();
+        if (modal.hidden) return;
+        if (e.key === 'Escape') {
+            closeDeptDetail();
+            return;
+        }
+        if (e.key === 'Tab') {
+            const focusables = [...modal.querySelectorAll(
+                'button:not([hidden]):not([disabled]), [href], [tabindex]:not([tabindex="-1"])'
+            )].filter(el => el.offsetParent !== null);
+            if (!focusables.length) return;
+            const first = focusables[0], last = focusables[focusables.length - 1];
+            if (e.shiftKey && document.activeElement === first) {
+                e.preventDefault();
+                last.focus();
+            } else if (!e.shiftKey && document.activeElement === last) {
+                e.preventDefault();
+                first.focus();
+            }
+        }
     });
 }
 

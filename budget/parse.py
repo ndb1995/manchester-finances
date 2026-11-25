@@ -1,8 +1,10 @@
 """Parse a Manchester NH budget book PDF into agencies. No OCR: pypdf text layer only."""
+from concurrent.futures import ProcessPoolExecutor
 import re
 
 import pypdf
 
+from .errors import BudgetError
 from .model import EXPENSE, KINDS, UNATTRIBUTED, Agency, Book, ItemKey, agrees
 
 # Whitespace inside a number is tolerated only directly after a comma: the text layer
@@ -14,9 +16,12 @@ ANY_AMOUNT = rf"(?:\({AMOUNT}\)|{AMOUNT})"  # the book prints negatives in paren
 # Object codes are 4 digits, but the text layer sometimes drops the leading zero.
 ITEM_RE = re.compile(rf"^(\d{{3,4}})\s+(.+?)\s+({ANY_AMOUNT})\$?\s*$")
 ITEM_START_RE = re.compile(r"^\d{3,4}\s+\S")
+# Zero-dollar lines printed with a dash ('4898 Refund on Parking Ticket -'): intentionally
+# carry no money and must not be flagged as unparsed item-shaped lines.
+DASH_ITEM_RE = re.compile(r"^\d{3,4}\s+.+?\s+-\s*$")
 TOTAL_RE = re.compile(rf"^(.*?)\s*Totals?:\s*({ANY_AMOUNT})\$?\s*$")
 TOTAL_PREFIX_RE = re.compile(rf"^Totals?\s+(.+?):\s*({ANY_AMOUNT})\$?\s*$")
-FUND_RE = re.compile(r"Fund:\s*(\d{4})\s+(.+?)\s*$", re.M)
+FUND_RE = re.compile(r"Fund:\s*(\d{4})\s+\S.*$", re.M)
 AGENCY_RE = re.compile(r"Agency:\s*(?:(\d{3})\s+)?(.+?)\s*$", re.M)
 KIND_RE = re.compile(r"FY\s*\d{4}\s+(Expense|Revenue)\s+Budget(\s+by\s+Organization)?", re.I)
 ORG_RE = re.compile(r"Organization:\s*(\d+)\s+(.+?)\s*$", re.M)
@@ -64,7 +69,6 @@ def classify_page(text):
     return {
         "kind": kind.group(1).lower(),
         "fund_code": fund.group(1),
-        "fund_name": fund.group(2),
         "agency_code": agency.group(1) if agency else None,
         "agency_name": agency.group(2) if agency else None,
         "by_org": bool(kind.group(2)),
@@ -132,9 +136,11 @@ def parse_sections(text, dropped=None):
             sections.append(cur)
             cur = _new_section()
             continue
+        if DASH_ITEM_RE.match(line):
+            continue
         # anything else: footers, page numbers, orphan amounts, wrapped labels -> skip,
-        # but report it when it carries an amount
-        if dropped is not None and MONEY_LINE_RE.search(line):
+        # but report it when it carries an amount or starts like an item (even < $1,000)
+        if dropped is not None and (MONEY_LINE_RE.search(line) or ITEM_START_RE.match(line)):
             dropped.append(line)
     if cur["items"]:
         sections.append(cur)
@@ -242,13 +248,43 @@ def _page_orgs(sections, meta, sub_agency):
 
 # ---- the book ---------------------------------------------------------------------------
 
+def _open_pdf(pdf_path):
+    try:
+        return pypdf.PdfReader(pdf_path)
+    except (OSError, pypdf.errors.PyPdfError) as exc:
+        raise BudgetError(f"cannot read PDF {pdf_path}: {exc}") from exc
+
+
+def read_page(pdf_path, page):
+    """The text layer of one 1-based page, without extracting the rest of the book."""
+    reader = _open_pdf(pdf_path)
+    total = len(reader.pages)
+    if not 1 <= page <= total:
+        raise BudgetError(f"{pdf_path} has pages 1-{total}, not {page}")
+    return reader.pages[page - 1].extract_text() or ""
+
+
 def read_pages(pdf_path):
     """The text layer of every page, in order."""
-    return [(page.extract_text() or "") for page in pypdf.PdfReader(pdf_path).pages]
+    return [(page.extract_text() or "") for page in _open_pdf(pdf_path).pages]
 
 
 def parse_book(pdf_path):
     return parse_pages(read_pages(pdf_path))
+
+
+def parse_books(years):
+    """{label: Book} for every extracted year, parsed in parallel across CPU cores."""
+    extracted = [y for y in years if y.extracted]
+    if len(extracted) <= 1:
+        return {y.label: parse_book(y.source_path) for y in extracted}
+    paths = [y.source_path for y in extracted]
+    try:
+        with ProcessPoolExecutor(max_workers=len(extracted)) as pool:
+            parsed = list(pool.map(parse_book, paths))
+    except OSError:  # restricted environments without multiprocessing semaphores
+        parsed = [parse_book(p) for p in paths]
+    return {y.label: book for y, book in zip(extracted, parsed)}
 
 
 def parse_pages(texts):
@@ -283,8 +319,6 @@ def _add_page(book, detail, known, page_no, text, meta):
     agency = book.agencies.setdefault(key, Agency(name=key, fund_code=fund))
     if agency.fund_code != fund:
         book.warnings.append(f"agency {key!r} appears in funds {agency.fund_code} and {fund}")
-    if parent is None and meta["agency_code"] and not agency.code:
-        agency.code = meta["agency_code"]
 
     page_dropped = []
     sections = parse_sections(text, page_dropped)
@@ -318,7 +352,7 @@ def _record_printed_totals(book, agency, kind, sections, is_detail):
         # detail pages and carry items, so they cannot be mistaken for it.
         if (not is_detail or not sec["items"]) and _same_entity(sec["total_label"], agency.name):
             pk = (agency.name, kind)
-            book.printed[pk] = max(book.printed.get(pk, 0), sec["total"])
+            book.printed[pk] = sec["total"]
 
 
 def _fill_from_detail(agencies, detail):

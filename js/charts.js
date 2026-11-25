@@ -14,9 +14,10 @@ const COLOR_VARS = {
     'Culture & Recreation': '--mint',
     'Health & Welfare': '--pink',
     'Economic Development': '--yellow',
-    // fund nodes in the flow diagram
+    // fund nodes in the flow diagram, and department drill-down categories
     'General Fund': '--navy-light',
     'School District': '--blue',
+    'Mixed (see line items)': '--navy-light',
     'Enterprise Funds': '--gray',
 };
 
@@ -37,8 +38,10 @@ function colorFor(name) {
 
 const chartsByCanvas = {};
 
-// Draws `config` on the canvas, replacing whatever chart was there.
+// Draws `config` on the canvas, replacing whatever chart was there. Returns null when
+// Chart.js did not load (e.g. opened offline from disk).
 function drawChart(canvasId, config) {
+    if (typeof Chart !== 'function') return null;
     clearChart(canvasId);
     const ctx = document.getElementById(canvasId).getContext('2d');
     chartsByCanvas[canvasId] = new Chart(ctx, config);
@@ -59,9 +62,12 @@ function moneyTicks() {
 }
 
 // Pie/doughnut legend whose entries carry each slice's amount: 'Public Safety  $61.6M'.
+// Moves below the chart on narrow viewports so the legend does not crowd out the canvas,
+// and reads Chart.js's slice visibility so toggled-off slices render struck through.
 function moneyLegend(fontSize, padding) {
+    const narrow = typeof window !== 'undefined' && window.matchMedia?.('(max-width: 640px)').matches;
     return {
-        position: 'right',
+        position: narrow ? 'bottom' : 'right',
         labels: {
             padding,
             font: { size: fontSize },
@@ -70,9 +76,10 @@ function moneyLegend(fontSize, padding) {
                 return chart.data.labels.map((label, i) => ({
                     text: label + '  ' + fmt(ds.data[i]),
                     fillStyle: ds.backgroundColor[i],
+                    fontColor: cssVar('--ink'),
                     strokeStyle: '#ccc',
                     lineWidth: 0,
-                    hidden: false,
+                    hidden: !chart.getDataVisibility(i),
                     index: i,
                 }));
             },
@@ -90,11 +97,14 @@ function seriesTooltip(axis) {
     return { callbacks: { label: ctx => ` ${ctx.dataset.label}: ${fmtFull(ctx.parsed[axis])}` } };
 }
 
-// Value printed at the end of each bar (chartjs-plugin-datalabels).
+// Value printed outside the end of each bar (chartjs-plugin-datalabels), flipping to the
+// start side for negative bars so '-13.7%' sits to the left of a negative bar rather than
+// overlapping its body.
 function barLabels(formatter, size) {
     return {
-        anchor: 'end',
-        align: 'end',
+        anchor: ctx => (ctx.dataset.data[ctx.dataIndex] < 0 ? 'start' : 'end'),
+        align: ctx => (ctx.dataset.data[ctx.dataIndex] < 0 ? 'start' : 'end'),
+        clip: false,
         color: cssVar('--ink'),
         font: { size, weight: '600' },
         formatter,

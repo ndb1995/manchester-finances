@@ -167,3 +167,8 @@ def test_check_book_turns_parser_warnings_into_labelled_failures(year):
     fails = check_book(Book(warnings=["a page lost its agency name"]), year["FY2026"])
     assert fails[0] == "FY2026 a page lost its agency name"
     assert any("GF expense total" in f for f in fails)
+
+
+def test_check_book_fails_on_dropped_item_shaped_lines(year):
+    fails = check_book(Book(dropped_lines=[(12, "0540 Advertising $500")]), year["FY2026"])
+    assert any("dropped item-shaped line(s): p12 0540 Advertising $500" in f for f in fails)

@@ -44,7 +44,6 @@ class Agency:
     """
     name: str
     fund_code: str
-    code: str | None = None
     expenses: dict = field(default_factory=dict)
     revenues: dict = field(default_factory=dict)
     org_expenses: dict = field(default_factory=dict)

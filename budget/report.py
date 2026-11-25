@@ -1,14 +1,20 @@
 """The reconciliation report printed on every run."""
 from .categorize import categorize, gf_totals, group_revenues
-from .model import agrees
+from .model import SCHOOL_CATEGORY, agrees
 from .parse import ITEM_START_RE, anchor_coverage
 
 
-def _book_section(book, year, failures):
-    gf_exp, gf_rev = gf_totals(book)
-    cats, groups = categorize(book), group_revenues(book)
+def _book_section(book, year, data, failures, *, totals=None):
+    gf_exp, gf_rev = totals if totals is not None else gf_totals(book)
+    y = year.label
+    if data:
+        cats = {c: v[y] for c, v in data["categories"].items()
+                if c != SCHOOL_CATEGORY and v.get(y) is not None}
+        groups = {g: v[y] for g, v in data["revenueGroups"].items() if v.get(y) is not None}
+    else:
+        cats, groups = categorize(book), group_revenues(book)
     matched = sum(1 for c, v in year.categories.items() if agrees(cats.get(c, 0), v))
-    ok = not any(f.startswith(year.label) for f in failures)
+    ok = not any(f.startswith(f"{year.label} ") for f in failures)
     print(f"{year.label}: GF/category/revenue checks", "OK" if ok else "FAILED")
     print(f"  agencies parsed        {len(book.agencies):>15,}"
           f"   parser warnings {len(book.warnings)}")
@@ -39,11 +45,12 @@ def _book_section(book, year, failures):
         print(f"    p{page_no:<4} {line}")
 
 
-def print_report(years, books, data, failures):
+def print_report(years, books, data, failures, *, totals=None):
     print("=== Reconciliation report ===")
     for year in years:
         if year.extracted:
-            _book_section(books[year.label], year, failures)
+            _book_section(books[year.label], year, data, failures,
+                          totals=totals.get(year.label) if totals else None)
         else:
             print(f"{year.label}: hand-entered, {len(year.categories)} categories"
                   f" summing {sum(year.categories.values()):,}")

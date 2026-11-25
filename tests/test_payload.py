@@ -115,8 +115,7 @@ def test_aviation_revenue_is_carried_by_its_own_book_entry(payload):
     # the books file airport revenue under the literal agency name 'Various' in fund 0805, not
     # under 'Aviation'. It stays its own entry (merging it would break the printed totals) but
     # gets a name the site can label.
-    various = next(d for d in payload["departments"] if d["bookName"] == "Various")
-    assert various["name"] == "Aviation - Revenues (Various)"
+    various = _dept(payload, "Aviation - Revenues (Various)")
     assert various["fund"] == "0805" and various["category"] == ENTERPRISE_CATEGORY
     assert various["totals"] == {"FY2025": 0, "FY2026": 0}
     assert various["revenueTotals"] == {"FY2025": 42_267_600, "FY2026": 43_951_550}
@@ -127,10 +126,36 @@ def test_an_extracted_year_without_a_parsed_book_is_an_error(years, books):
         build_budget_data(years, {"FY2026": books["FY2026"]})
 
 
-def test_render_data_js_wraps_the_payload_as_an_assignment():
-    text = render_data_js({"years": ["FY2025"]})
+def test_absent_category_or_revenue_group_in_extracted_year_emits_null():
+    from budget.config import YearConfig
+    from budget.model import Agency, Book
+    y1 = YearConfig("FY2025", "Jul 2024 – Jun 2025", 100, 200,
+                    {"Public Safety": 100}, source="sources/Budget_Book_2025.pdf",
+                    gf_revenue=50, msd_property_tax=120)
+    y2 = YearConfig("FY2026", "Jul 2025 – Jun 2026", 150, 200,
+                    {"Public Safety": 100, "Economic Development": 50},
+                    source="sources/Budget_Book_2026.pdf",
+                    gf_revenue=60, msd_property_tax=120)
+    b1 = Book(agencies={"Police Department": Agency(
+        "Police Department", "0101",
+        expenses={("0110", "Salary"): 100}, revenues={("4083", "Rooms & Meals"): 50})})
+    b2 = Book(agencies={
+        "Police Department": Agency("Police Department", "0101", expenses={("0110", "Salary"): 100}),
+        "Manchester Economic Development Office": Agency(
+            "Manchester Economic Development Office", "0101",
+            expenses={("0110", "Salary"): 50}, revenues={("4680", "Auto Registration"): 60})})
+    out = build_budget_data([y1, y2], {"FY2025": b1, "FY2026": b2})
+    assert out["categories"]["Economic Development"] == {"FY2025": None, "FY2026": 50}
+    assert out["revenueGroups"]["Meals & Rooms Tax"] == {"FY2025": 50, "FY2026": None}
+    assert check_payload(out) == []
+
+
+def test_render_data_js_wraps_the_payload_and_escapes_closing_script_tags():
+    text = render_data_js({"years": ["FY2025"], "note": "</script>"})
     assert text.startswith("//") and text.rstrip().endswith(";")
-    assert "window.BUDGET_DATA = " in text
+    assert "</script>" not in text and r"<\/script>" in text
+    parsed = json.loads(text.split("window.BUDGET_DATA = ", 1)[1].rstrip().rstrip(";"))
+    assert parsed["note"] == "</script>"
 
 
 def _committed():
@@ -155,5 +180,6 @@ def test_committed_data_js_round_trips_through_json():
     data = json.loads(text.split("window.BUDGET_DATA = ", 1)[1].rstrip().rstrip(";"))
     assert data["categories"]["Public Safety"]["FY2026"] == 61_551_254
     police = next(d for d in data["departments"] if d["name"] == "Police Department")
-    assert {"name", "bookName", "code", "fund", "generalFund", "category", "inFlow", "expenses",
+    assert {"name", "fund", "generalFund", "category", "inFlow", "expenses",
             "revenues", "totals", "revenueTotals"} <= set(police)
+    assert "bookName" not in police and "code" not in police

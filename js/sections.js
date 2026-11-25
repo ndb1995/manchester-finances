@@ -29,13 +29,19 @@ function fillSlots(D) {
 // the change: a decrease reads "↓ x% from FY2025" in red rather than a green rise.
 function setDelta(id, now, before, beforeLabel) {
     const el = document.getElementById(id);
-    if (!Number.isFinite(before)) {
+    if (!Number.isFinite(before) || !Number.isFinite(now) || before === 0) {
+        el.className = 'change';
         el.textContent = '';
         return;
     }
     const diff = now - before;
+    if (diff === 0) {
+        el.className = 'change';
+        el.textContent = `No change from ${beforeLabel}`;
+        return;
+    }
     el.className = 'change ' + (diff < 0 ? 'down' : 'up');
-    el.textContent = `${diff < 0 ? '↓' : '↑'} ${pct(Math.abs(diff), before)} from ${beforeLabel}`;
+    el.textContent = `${diff < 0 ? '↓' : '↑'} ${pct(Math.abs(diff), Math.abs(before))} from ${beforeLabel}`;
 }
 
 function renderKpis(D) {
@@ -64,10 +70,13 @@ function renderInsights(D) {
 
     const gf = D.generalFund, g = growth(gf[first], gf[y]);
     const topGf = generalFundRows(D)[0];
+    const trendCopy = g == null || first === y
+        ? `The <strong>General Fund</strong> totals <strong>${fmt(gf[y])}</strong> in ${esc(y)}. `
+        : `The <strong>General Fund</strong> has ${g < 0 ? 'shrunk' : 'grown'} from `
+            + `<strong>${fmt(gf[first])}</strong> in ${esc(first)} to <strong>${fmt(gf[y])}</strong> in ${esc(y)} `
+            + `&mdash; ${g < 0 ? 'a decrease' : 'an increase'} of <strong>${Math.abs(g).toFixed(1)}%</strong>. `;
     document.getElementById('insightGeneralFund').innerHTML =
-        `The <strong>General Fund</strong> has ${g < 0 ? 'shrunk' : 'grown'} from `
-        + `<strong>${fmt(gf[first])}</strong> in ${first} to <strong>${fmt(gf[y])}</strong> in ${y} `
-        + `&mdash; ${g < 0 ? 'a decrease' : 'an increase'} of <strong>${Math.abs(g).toFixed(1)}%</strong>. `
+        trendCopy
         + `Excluding the school district budget, <strong>${esc(topGf.category)}</strong> takes `
         + `<strong>${pct(topGf.values[y], gf[y])}</strong> of the General Fund.`;
 }
@@ -77,7 +86,7 @@ function renderInsights(D) {
 function renderTable(D) {
     const cells = values => D.years.map(y => `<td>${fmtMoney(values[y])}</td>`).join('');
     document.getElementById('tableHead').innerHTML =
-        `<tr><th>Category</th>${D.years.map(y => `<th>${y}</th>`).join('')}</tr>`;
+        `<tr><th>Category</th>${D.years.map(y => `<th>${esc(y)}</th>`).join('')}</tr>`;
     document.getElementById('tableBody').innerHTML =
         categoryRows(D).map(r => `<tr class="category-row"><td>${esc(r.category)}</td>${cells(r.values)}</tr>`).join('')
         + `<tr class="total"><td>Total Budget</td>${cells(D.citywide)}</tr>`
@@ -89,7 +98,7 @@ function renderTable(D) {
 function renderAllocation(D) {
     const y = latestYear(D), rows = categoryRows(D), total = D.citywide[y];
     const labels = rows.map(r => r.category);
-    const values = rows.map(r => r.values[y]);
+    const values = rows.map(r => r.values[y] ?? 0);
     const colors = labels.map(colorFor);
 
     const draw = view => drawChart('allocationChart', view === 'bar' ? {
@@ -104,9 +113,12 @@ function renderAllocation(D) {
                 tooltip: { callbacks: { label: ctx => ` ${fmtFull(ctx.parsed.x)} (${pct(ctx.parsed.x, total)})` } },
                 datalabels: barLabels(v => fmt(v), 11),
             },
-            scales: { x: { ticks: moneyTicks(), grid: { display: false } }, y: { grid: { display: false } } },
+            scales: {
+                x: { grace: '14%', ticks: moneyTicks(), grid: { display: false } },
+                y: { grid: { display: false } },
+            },
         },
-        plugins: [ChartDataLabels],
+        plugins: typeof ChartDataLabels !== 'undefined' ? [ChartDataLabels] : [],
     } : {
         type: view,
         data: { labels, datasets: [{ data: values, backgroundColor: colors, borderWidth: 2, borderColor: cssVar('--white') }] },
@@ -115,7 +127,6 @@ function renderAllocation(D) {
             maintainAspectRatio: true,
             plugins: { legend: moneyLegend(12, 14), tooltip: sliceTooltip(total) },
         },
-        plugins: [ChartDataLabels],
     });
 
     draw('pie');
@@ -167,10 +178,29 @@ function renderTrend(D) {
 
 function renderGrowth(D) {
     const first = D.years[0], y = latestYear(D);
-    const rows = categoryRows(D)
-        .map(r => ({ label: r.category, growth: growth(r.values[first], r.values[y]) }))
+    const rawRows = categoryRows(D)
+        .map(r => ({
+            label: r.category,
+            before: r.values[first],
+            now: r.values[y],
+            growth: growth(r.values[first], r.values[y]),
+        }))
         .filter(r => r.growth != null)
         .sort((a, b) => b.growth - a.growth);
+    const rows = capOutlierGrowth(rawRows);
+    const fmtPct = n => (n > 0 ? '+' : '') + n.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '%';
+
+    const capped = rows.filter(r => r.capped);
+    const noteEl = document.getElementById('growthNote');
+    if (noteEl) {
+        noteEl.hidden = !capped.length;
+        if (capped.length) {
+            noteEl.textContent = capped.map(r =>
+                `${r.label} grew ${fmtPct(r.growth)} (${fmtFull(r.before)} → ${fmtFull(r.now)}); `
+                + 'its bar is truncated so the remaining categories stay readable.'
+            ).join(' ');
+        }
+    }
 
     drawChart('growthChart', {
         type: 'bar',
@@ -178,7 +208,7 @@ function renderGrowth(D) {
             labels: rows.map(r => r.label),
             datasets: [{
                 label: `% Growth ${first} → ${y}`,
-                data: rows.map(r => r.growth),
+                data: rows.map(r => r.plotted),
                 backgroundColor: rows.map(r => colorFor(r.label)),
                 borderRadius: 4,
             }],
@@ -189,15 +219,26 @@ function renderGrowth(D) {
             maintainAspectRatio: true,
             plugins: {
                 legend: { display: false },
-                tooltip: { callbacks: { label: ctx => ` ${ctx.parsed.x.toFixed(1)}% growth` } },
-                datalabels: barLabels(v => v.toFixed(1) + '%', 11),
+                tooltip: {
+                    callbacks: {
+                        label: ctx => {
+                            const r = rows[ctx.dataIndex];
+                            const suffix = r.capped ? '; bar truncated for scale' : '';
+                            return ` ${fmtPct(r.growth)} (${fmtFull(r.before)} → ${fmtFull(r.now)}${suffix})`;
+                        },
+                    },
+                },
+                datalabels: barLabels((_, ctx) => {
+                    const r = rows[ctx.dataIndex];
+                    return fmtPct(r.growth) + (r.capped ? ' (off-scale)' : '');
+                }, 11),
             },
             scales: {
-                x: { ticks: { callback: v => v + '%' }, grid: { display: false } },
+                x: { grace: '22%', ticks: { callback: v => v + '%' }, grid: { display: false } },
                 y: { grid: { display: false } },
             },
         },
-        plugins: [ChartDataLabels],
+        plugins: typeof ChartDataLabels !== 'undefined' ? [ChartDataLabels] : [],
     });
 }
 
@@ -208,7 +249,7 @@ function renderGeneralFund(D) {
         data: {
             labels: rows.map(r => r.category),
             datasets: [{
-                data: rows.map(r => r.values[y]),
+                data: rows.map(r => r.values[y] ?? 0),
                 backgroundColor: rows.map(r => colorFor(r.category)),
                 borderWidth: 2,
                 borderColor: cssVar('--white'),
@@ -219,7 +260,6 @@ function renderGeneralFund(D) {
             maintainAspectRatio: true,
             plugins: { legend: moneyLegend(10, 10), tooltip: sliceTooltip(D.generalFund[y]) },
         },
-        plugins: [ChartDataLabels],
     });
 
     drawChart('generalFundTrendChart', {
@@ -240,11 +280,11 @@ function renderGeneralFund(D) {
                 datalabels: barLabels(v => fmt(v), 10),
             },
             scales: {
-                y: { ticks: moneyTicks(), grid: { display: true, color: cssVar('--grid') } },
+                y: { grace: '12%', ticks: moneyTicks(), grid: { display: true, color: cssVar('--grid') } },
                 x: { grid: { display: false } },
             },
         },
-        plugins: [ChartDataLabels],
+        plugins: typeof ChartDataLabels !== 'undefined' ? [ChartDataLabels] : [],
     });
 }
 
@@ -280,6 +320,11 @@ function renderComparison(D) {
 
 function renderFlow(D) {
     const years = extractedYears(D), latest = years[years.length - 1];
+    if (!years.length) {
+        document.getElementById('flow').hidden = true;
+        return;
+    }
+    const deptNames = new Set(D.departments.map(d => d.name));
     const draw = y => drawChart('sankeyChart', {
         type: 'sankey',
         data: {
@@ -307,10 +352,14 @@ function renderFlow(D) {
                     },
                 },
             },
+            onHover: (evt, els, chart) => {
+                const clickable = els.length && deptNames.has(chart.data.datasets[0].data[els[0].index]?.to);
+                chart.canvas.style.cursor = clickable ? 'pointer' : 'default';
+            },
             onClick: (evt, els, chart) => {
                 if (!els.length) return;
                 const f = chart.data.datasets[0].data[els[0].index];
-                if (D.departments.some(d => d.name === f.to)) openDeptDetail(D, f.to);
+                if (deptNames.has(f.to)) openDeptDetail(D, f.to);
             },
         },
     });
@@ -324,7 +373,7 @@ function renderFlow(D) {
 function renderDeptNote(D) {
     const years = extractedYears(D), y = years[years.length - 1];
     const el = document.getElementById('gfDeptNote');
-    const transit = D.transitSubsidy[y];
+    const transit = y ? D.transitSubsidy[y] : 0;
     if (!transit) {
         el.hidden = true;
         return;
@@ -339,14 +388,18 @@ function renderDeptNote(D) {
 // ---- entrance animation ----------------------------------------------------------------
 
 function animateOnScroll() {
+    if (typeof IntersectionObserver !== 'function') return;
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+
     const observer = new IntersectionObserver(entries => {
         for (const entry of entries) {
             if (entry.isIntersecting) {
                 entry.target.style.opacity = '1';
                 entry.target.style.transform = 'translateY(0)';
+                observer.unobserve(entry.target);
             }
         }
-    }, { threshold: 0.1, rootMargin: '0px 0px -50px 0px' });
+    }, { threshold: 0.02, rootMargin: '0px 0px -30px 0px' });
 
     for (const el of document.querySelectorAll('.chart-card, .insight-box')) {
         el.style.opacity = '0';

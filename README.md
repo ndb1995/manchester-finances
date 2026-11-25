@@ -64,7 +64,7 @@ charts need an internet connection. Everything else, including `data.js`, is loc
 
 ```
 python -m pytest -q
-node --test "tests/js/*.test.js"
+node --test
 ```
 
 The Python tests parse both PDFs for real. Nothing is mocked or fixtured from a cached parse,
